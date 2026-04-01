@@ -23,7 +23,7 @@ export default function Navbar() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <a href="#" className="flex items-center gap-2">
+          <a href="/" className="flex items-center gap-2">
             <EagleIcon />
             <span className="text-xl font-bold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">
               Eaglebot
@@ -80,7 +80,7 @@ export default function Navbar() {
             ))}
             <a
               href="/cadastro"
-              className="inline-flex justify-center rounded-full bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2.5 text-sm font-semibold text-white"
+              className="inline-flex justify-center rounded-full bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 px-5 py-2.5 text-sm font-semibold text-white transition-all shadow-lg shadow-violet-500/20"
             >
               Criar conta grátis
             </a>
@@ -101,14 +101,14 @@ function EagleIcon() {
   return (
     <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <linearGradient id="eagleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="eaglebot-nav-grad" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#7C3AED" />
           <stop offset="100%" stopColor="#2563EB" />
         </linearGradient>
       </defs>
       <path
         d="M14 3L4 10l3 2-5 6h6l2-3 4 8 4-8 2 3h6l-5-6 3-2L14 3z"
-        fill="url(#eagleGrad)"
+        fill="url(#eaglebot-nav-grad)"
       />
     </svg>
   )
