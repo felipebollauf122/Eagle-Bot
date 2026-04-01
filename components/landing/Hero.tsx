@@ -1,69 +1,109 @@
-import ArrowIcon from './ArrowIcon'
+const stats = [
+  { value: '2.400+', label: 'Bots ativos agora' },
+  { value: 'R$ 4.2M', label: 'Processados / mês' },
+  { value: '38%', label: 'Aumento médio de conversão' },
+]
 
 export default function Hero() {
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-[#080B14]">
-      {/* Dot grid texture */}
-      <div className="absolute inset-0 dot-grid opacity-40" />
+    <section className="relative min-h-screen overflow-hidden bg-[#030508] flex flex-col">
+      {/* Grid background */}
+      <div className="absolute inset-0 grid-lines" />
 
-      {/* Radial purple glow from top */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(124,58,237,0.25),transparent)]" />
+      {/* Gradient mesh — top right */}
+      <div className="absolute top-0 right-0 w-3/4 h-3/4 bg-[radial-gradient(ellipse_at_top_right,rgba(79,70,229,0.15),transparent_65%)]" />
+      <div className="absolute top-0 right-0 w-1/2 h-1/2 bg-[radial-gradient(ellipse_at_top_right,rgba(6,182,212,0.08),transparent_60%)]" />
 
-      {/* Central ambient glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-violet-600/[0.07] rounded-full blur-3xl pointer-events-none" />
+      {/* Bottom fade */}
+      <div className="absolute bottom-0 inset-x-0 h-48 bg-gradient-to-t from-[#030508] to-transparent z-10" />
 
-      <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center pt-24 pb-16">
-        {/* Badge */}
-        <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-4 py-1.5 text-xs font-semibold tracking-widest text-violet-300 uppercase mb-8">
-          <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
-          Automação de vendas no Telegram
-        </div>
+      {/* ── Main content ── */}
+      <div className="relative z-10 flex-1 flex items-center">
+        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-28 pb-24">
+          {/* Live badge */}
+          <div className="animate-fade-up inline-flex items-center gap-2.5 mb-10 border border-cyan-500/20 bg-cyan-500/[0.06] rounded-full px-4 py-1.5">
+            <span className="live-dot block w-1.5 h-1.5 rounded-full bg-cyan-400 flex-shrink-0" />
+            <span
+              className="text-xs text-cyan-400 tracking-[0.12em] uppercase"
+              style={{ fontFamily: 'var(--font-jetbrains)' }}
+            >
+              Plataforma ao vivo · +2.400 bots rodando
+            </span>
+          </div>
 
-        {/* Headline */}
-        <h1 className="text-5xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white leading-[1.05] mb-6">
-          Você ainda vende
-          <br />
-          no Telegram{' '}
-          <span className="bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">
-            na mão?
-          </span>
-        </h1>
+          {/* Headline — massive, left-aligned */}
+          <h1
+            className="mb-8 leading-[0.92] tracking-tight"
+            style={{ fontFamily: 'var(--font-syne)' }}
+          >
+            <span className="animate-fade-up-1 block text-[clamp(3.5rem,8vw,5.5rem)] font-extrabold text-white">
+              Você ainda
+            </span>
+            <span className="animate-fade-up-2 block text-[clamp(3.5rem,8vw,5.5rem)] font-extrabold text-white/[0.15]">
+              vende no
+            </span>
+            <span className="animate-fade-up-3 block text-[clamp(3.5rem,8vw,5.5rem)] font-extrabold text-white">
+              Telegram
+            </span>
+            <span className="animate-fade-up-4 block text-[clamp(3.5rem,8vw,5.5rem)] font-extrabold gradient-text">
+              na mão?
+            </span>
+          </h1>
 
-        {/* Pain subheadline */}
-        <p className="text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed mb-5">
-          Copiar link, mandar mensagem, cobrar no PIX manual, perder cliente por
-          falta de follow-up. Isso não é automação —{' '}
-          <strong className="text-slate-300">é trabalho braçal disfarçado.</strong>
-        </p>
+          {/* Body */}
+          <div className="max-w-xl">
+            <p className="animate-fade-up-4 text-lg text-slate-400 leading-relaxed mb-4">
+              PIX manual. Follow-up no braço. Sem rastreamento. Cada venda que
+              você fecha custou trabalho que deveria ser automático.
+            </p>
+            <p className="animate-fade-up-5 text-base text-slate-300 leading-relaxed mb-10">
+              O Eaglebot coloca seu Telegram em{' '}
+              <strong className="text-white font-semibold">modo piloto automático</strong>{' '}
+              — funil, cobrança, recuperação e tracking rodando 24h sem você tocar em nada.
+            </p>
 
-        {/* Promise */}
-        <p className="text-base sm:text-lg text-slate-300 max-w-xl mx-auto leading-relaxed mb-10">
-          O Eaglebot transforma seu Telegram numa{' '}
-          <strong className="text-white">máquina de vendas 24h</strong>. Funil,
-          cobrança, recuperação e tracking — tudo automático, tudo no seu controle.
-        </p>
-
-        {/* Primary CTA */}
-        <a
-          href="/cadastro"
-          className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 px-9 py-4 text-base font-bold text-white transition-all duration-200 shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 hover:-translate-y-0.5 active:translate-y-0"
-        >
-          Criar meu bot grátis
-          <ArrowIcon />
-        </a>
-
-        {/* Social proof strip */}
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-slate-500">
-          <span>🔥 +2.400 bots criados</span>
-          <span className="hidden sm:inline text-slate-700">·</span>
-          <span>⚡ Setup em menos de 5 min</span>
-          <span className="hidden sm:inline text-slate-700">·</span>
-          <span>✅ Sem cartão de crédito</span>
+            {/* CTA row */}
+            <div className="animate-fade-up-5 flex flex-col sm:flex-row gap-4 items-start">
+              <a
+                href="/cadastro"
+                className="group inline-flex items-center gap-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-8 py-3.5 rounded-xl transition-all duration-200 shadow-xl shadow-indigo-500/25 hover:shadow-indigo-500/45 hover:-translate-y-0.5"
+              >
+                Criar meu bot grátis
+                <svg
+                  className="w-4 h-4 group-hover:translate-x-0.5 transition-transform duration-150"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </a>
+              <span className="self-center text-sm text-slate-600">
+                Sem cartão · Setup em 5 min
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Bottom gradient fade into next section */}
-      <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-[#080B14] to-transparent" />
+      {/* ── Stats strip ── */}
+      <div className="relative z-20 border-t border-white/[0.06] bg-[#030508]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-3 divide-x divide-white/[0.06]">
+            {stats.map((s) => (
+              <div key={s.label} className="py-5 sm:py-6 px-4 sm:px-8 text-center">
+                <p
+                  className="text-xl sm:text-2xl font-bold text-white mb-0.5"
+                  style={{ fontFamily: 'var(--font-jetbrains)' }}
+                >
+                  {s.value}
+                </p>
+                <p className="text-xs text-slate-600 tracking-wide">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </section>
   )
 }

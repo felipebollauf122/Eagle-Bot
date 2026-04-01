@@ -1,50 +1,77 @@
 const pains = [
   {
-    icon: '😤',
+    index: '01',
     title: 'Clientes sumindo',
     description:
-      'Você manda o link, a pessoa some. Sem follow-up automático, você perde venda toda hora.',
+      'Você manda o link, a pessoa some. Sem follow-up automático, você perde venda toda hora — sem nem saber quantas.',
   },
   {
-    icon: '💸',
+    index: '02',
     title: 'Dinheiro na mesa',
     description:
-      'PIX manual, sem rastreamento. Você não sabe de onde veio nem o que converteu.',
+      'PIX manual, sem rastreamento. Você não sabe qual anúncio converteu, qual funil funcionou, quanto perdeu ontem.',
   },
   {
-    icon: '🔥',
+    index: '03',
     title: 'Operação no limite',
     description:
-      'Responder, cobrar, reenviar, recuperar — tudo na mão. Não escala, não dorme, não para.',
+      'Responder, cobrar, reenviar, recuperar — tudo na mão. Não escala. Não dorme. Não para. E ainda assim, vende menos.',
   },
 ]
 
 export default function PainSection() {
   return (
-    <section className="bg-[#080B14] py-24 lg:py-32">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h2 className="text-3xl sm:text-4xl font-bold text-white text-center mb-16">
-          A realidade de quem vende no Telegram{' '}
-          <span className="text-slate-500">sem automação</span>
+    <section className="bg-[#030508] py-28 lg:py-36">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Section label */}
+        <p
+          className="text-xs text-slate-600 tracking-[0.2em] uppercase mb-6"
+          style={{ fontFamily: 'var(--font-jetbrains)' }}
+        >
+          O problema
+        </p>
+
+        <h2
+          className="text-4xl sm:text-5xl font-bold text-white leading-tight mb-16 max-w-2xl"
+          style={{ fontFamily: 'var(--font-syne)' }}
+        >
+          A realidade de quem vende{' '}
+          <span className="text-slate-600">no Telegram sem automação</span>
         </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
+        {/* Pain cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-white/[0.06] rounded-2xl overflow-hidden mb-20">
           {pains.map((pain) => (
             <div
-              key={pain.title}
-              className="bg-white/[0.03] border-t border-r border-b border-t-white/[0.06] border-r-white/[0.06] border-b-white/[0.06] border-l-2 border-l-red-500/50 rounded-2xl p-6"
+              key={pain.index}
+              className="bg-[#030508] hover:bg-[#080d1a] transition-colors duration-300 p-8 lg:p-10 group"
             >
-              <div className="text-4xl mb-4">{pain.icon}</div>
-              <h3 className="text-base font-bold text-white mb-2">{pain.title}</h3>
-              <p className="text-sm text-slate-400 leading-relaxed">{pain.description}</p>
+              <p
+                className="text-xs text-red-500/60 tracking-[0.15em] uppercase mb-6"
+                style={{ fontFamily: 'var(--font-jetbrains)' }}
+              >
+                {pain.index}
+              </p>
+              <div className="w-8 h-px bg-red-500/40 mb-6 group-hover:w-16 transition-all duration-300" />
+              <h3
+                className="text-lg font-semibold text-white mb-3"
+                style={{ fontFamily: 'var(--font-syne)' }}
+              >
+                {pain.title}
+              </h3>
+              <p className="text-sm text-slate-500 leading-relaxed">{pain.description}</p>
             </div>
           ))}
         </div>
 
-        <div className="text-center">
-          <p className="text-2xl sm:text-3xl font-bold text-white">
+        {/* Transition statement */}
+        <div className="max-w-3xl">
+          <p
+            className="text-3xl sm:text-4xl font-bold text-white leading-snug"
+            style={{ fontFamily: 'var(--font-syne)' }}
+          >
             Existe um jeito melhor.{' '}
-            <span className="bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">
+            <span className="gradient-text">
               E você está prestes a ver.
             </span>
           </p>

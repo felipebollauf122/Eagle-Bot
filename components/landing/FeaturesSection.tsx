@@ -1,77 +1,98 @@
 const features = [
   {
-    icon: '🎯',
+    index: '01',
     title: 'Funil Automatizado',
     description:
-      'Sequências de mensagens que guiam o lead do interesse à compra sem você tocar em nada.',
-    hoverGradient: 'from-violet-500/15 to-transparent',
+      'Sequências de mensagens que guiam o lead do interesse à compra sem você tocar em nada. Cada etapa, na hora certa.',
+    accent: 'text-indigo-400',
   },
   {
-    icon: '⚡',
-    title: 'Pagamento Integrado (PIX)',
+    index: '02',
+    title: 'Pagamento Integrado — PIX',
     description:
-      'Cobrança gerada automaticamente no chat. O cliente paga sem sair do Telegram.',
-    hoverGradient: 'from-blue-500/15 to-transparent',
+      'Cobrança gerada automaticamente dentro do chat. O cliente paga sem sair do Telegram. Zero fricção, mais conversão.',
+    accent: 'text-cyan-400',
   },
   {
-    icon: '📊',
+    index: '03',
     title: 'Tracking Avançado',
     description:
-      'Saiba exatamente qual campanha, criativo e fonte gerou cada venda.',
-    hoverGradient: 'from-cyan-500/15 to-transparent',
+      'Saiba exatamente qual campanha, criativo e fonte gerou cada venda. Dados reais para decisões reais.',
+    accent: 'text-violet-400',
   },
   {
-    icon: '🤖',
+    index: '04',
     title: 'Fluxos Inteligentes',
     description:
-      'Lógica condicional: o bot age diferente dependendo do comportamento do lead.',
-    hoverGradient: 'from-indigo-500/15 to-transparent',
+      'Lógica condicional nativa: o bot age diferente dependendo do que o lead fez, clicou ou respondeu.',
+    accent: 'text-indigo-400',
   },
   {
-    icon: '🔄',
+    index: '05',
     title: 'Recuperação Automática',
     description:
-      'Carrinho abandonado? O bot segue o lead e recupera a venda no automático.',
-    hoverGradient: 'from-violet-500/15 to-transparent',
+      'Carrinho abandonado? O bot detecta, segue o lead e tenta a recuperação no momento certo — sem você fazer nada.',
+    accent: 'text-cyan-400',
   },
   {
-    icon: '🖥️',
+    index: '06',
     title: 'Dashboard Completo',
     description:
-      'Visão em tempo real de faturamento, conversão, leads ativos e performance dos bots.',
-    hoverGradient: 'from-blue-500/15 to-transparent',
+      'Visão em tempo real de faturamento, conversão, leads ativos e performance por bot. Tudo em um painel.',
+    accent: 'text-violet-400',
   },
 ]
 
 export default function FeaturesSection() {
   return (
-    <section id="produto" className="bg-[#080B14] py-24 lg:py-32">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-            Tudo que você precisa para vender{' '}
-            <span className="bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">
-              no piloto automático
-            </span>
-          </h2>
-          <p className="text-slate-400 text-lg">
-            Seis módulos integrados, um único painel, resultado real.
+    <section id="produto" className="bg-[#030508] py-28 lg:py-36 border-t border-white/[0.06]">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-8 mb-16">
+          <div>
+            <p
+              className="text-xs text-slate-600 tracking-[0.2em] uppercase mb-5"
+              style={{ fontFamily: 'var(--font-jetbrains)' }}
+            >
+              O produto
+            </p>
+            <h2
+              className="text-4xl sm:text-5xl font-bold text-white leading-tight max-w-lg"
+              style={{ fontFamily: 'var(--font-syne)' }}
+            >
+              Seis módulos.{' '}
+              <span className="gradient-text">Um único painel.</span>
+            </h2>
+          </div>
+          <p className="text-slate-500 text-base max-w-xs lg:text-right leading-relaxed">
+            Cada módulo foi construído para eliminar uma tarefa manual do seu processo de vendas.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        {/* Feature grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-white/[0.06] rounded-2xl overflow-hidden">
           {features.map((f) => (
             <div
-              key={f.title}
-              className="group relative bg-white/[0.03] hover:bg-white/[0.055] border border-white/[0.07] rounded-2xl p-6 transition-all duration-300 overflow-hidden"
+              key={f.index}
+              className="relative bg-[#030508] hover:bg-[#080d1a] transition-colors duration-300 p-8 group overflow-hidden"
             >
-              <div
-                className={`absolute inset-0 bg-gradient-to-br ${f.hoverGradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
-              />
+              {/* Subtle hover glow */}
+              <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-[radial-gradient(ellipse_at_top_left,rgba(79,70,229,0.06),transparent_60%)]" />
+
               <div className="relative">
-                <div className="text-3xl mb-4">{f.icon}</div>
-                <h3 className="text-base font-bold text-white mb-2">{f.title}</h3>
-                <p className="text-sm text-slate-400 leading-relaxed">{f.description}</p>
+                <p
+                  className={`text-xs tracking-[0.15em] uppercase mb-5 ${f.accent}`}
+                  style={{ fontFamily: 'var(--font-jetbrains)' }}
+                >
+                  {f.index}
+                </p>
+                <h3
+                  className="text-base font-semibold text-white mb-3 leading-snug"
+                  style={{ fontFamily: 'var(--font-syne)' }}
+                >
+                  {f.title}
+                </h3>
+                <p className="text-sm text-slate-500 leading-relaxed">{f.description}</p>
               </div>
             </div>
           ))}

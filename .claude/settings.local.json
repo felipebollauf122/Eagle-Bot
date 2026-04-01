@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(claude install:*)",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(/c/Users/Administrator/.local/bin/claude.exe install:*)",
+      "Bash(brew install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
