@@ -1,3 +1,5 @@
+import ArrowIcon from './ArrowIcon'
+
 export default function Hero() {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-[#080B14]">
@@ -63,13 +65,5 @@ export default function Hero() {
       {/* Bottom gradient fade into next section */}
       <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-[#080B14] to-transparent" />
     </section>
-  )
-}
-
-function ArrowIcon() {
-  return (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-    </svg>
   )
 }

@@ -32,7 +32,7 @@ export default function PainSection() {
           {pains.map((pain) => (
             <div
               key={pain.title}
-              className="bg-white/[0.03] border border-white/[0.06] border-l-2 border-l-red-500/50 rounded-2xl p-6"
+              className="bg-white/[0.03] border-t border-r border-b border-t-white/[0.06] border-r-white/[0.06] border-b-white/[0.06] border-l-2 border-l-red-500/50 rounded-2xl p-6"
             >
               <div className="text-4xl mb-4">{pain.icon}</div>
               <h3 className="text-base font-bold text-white mb-2">{pain.title}</h3>

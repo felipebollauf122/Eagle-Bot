@@ -1,3 +1,5 @@
+import ArrowIcon from './ArrowIcon'
+
 const steps = [
   {
     number: '01',
@@ -58,9 +60,7 @@ export default function HowItWorksSection() {
             className="inline-flex items-center gap-2 rounded-full border border-violet-500/40 bg-violet-500/10 hover:bg-violet-500/20 px-7 py-3 text-sm font-semibold text-violet-300 hover:text-white transition-all"
           >
             Quero começar agora
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-            </svg>
+            <ArrowIcon />
           </a>
         </div>
       </div>

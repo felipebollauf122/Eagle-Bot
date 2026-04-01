@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 const productLinks = [
   { href: '#produto', label: 'Funcionalidades' },
   { href: '#como-funciona', label: 'Como funciona' },
@@ -82,7 +84,7 @@ function SocialLink({
 }: {
   href: string
   label: string
-  icon: React.ReactNode
+  icon: ReactNode
   hoverColor: string
 }) {
   return (

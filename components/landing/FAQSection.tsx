@@ -45,7 +45,7 @@ export default function FAQSection() {
         <div className="flex flex-col gap-3">
           {faqs.map((faq, i) => (
             <div
-              key={i}
+              key={faq.question}
               className="bg-white/[0.03] border border-white/[0.07] rounded-xl overflow-hidden"
             >
               <button

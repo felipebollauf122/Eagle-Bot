@@ -1,3 +1,5 @@
+import ArrowIcon from './ArrowIcon'
+
 export default function FinalCTA() {
   return (
     <section className="relative overflow-hidden bg-[#080B14] py-24 lg:py-32">
@@ -29,9 +31,7 @@ export default function FinalCTA() {
           className="inline-flex items-center gap-2 rounded-full bg-white hover:bg-slate-100 px-10 py-5 text-base font-bold text-slate-900 transition-all duration-200 shadow-2xl shadow-white/10 hover:-translate-y-0.5 active:translate-y-0"
         >
           Criar meu bot grátis
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-          </svg>
+          <ArrowIcon />
         </a>
 
         <p className="mt-5 text-sm text-slate-600">
