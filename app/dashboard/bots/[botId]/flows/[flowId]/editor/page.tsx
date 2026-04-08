@@ -1,0 +1,42 @@
+import { createClient } from "@/lib/supabase/server";
+import { notFound } from "next/navigation";
+import { FlowEditor } from "@/components/dashboard/flow-builder/flow-editor";
+import type { Flow } from "@/lib/types/database";
+
+export default async function FlowEditorPage({
+  params,
+}: {
+  params: Promise<{ botId: string; flowId: string }>;
+}) {
+  const { botId, flowId } = await params;
+  const supabase = await createClient();
+
+  const [{ data: flow }, { data: bundles }] = await Promise.all([
+    supabase
+      .from("flows")
+      .select("*")
+      .eq("id", flowId)
+      .eq("bot_id", botId)
+      .single(),
+    supabase
+      .from("product_bundles")
+      .select("id, name, is_active")
+      .eq("bot_id", botId)
+      .eq("is_active", true)
+      .order("name"),
+  ]);
+
+  if (!flow) notFound();
+
+  const typedFlow = flow as Flow;
+
+  return (
+    <FlowEditor
+      flowId={typedFlow.id}
+      flowName={typedFlow.name}
+      initialData={typedFlow.flow_data}
+      botId={botId}
+      bundles={(bundles ?? []) as { id: string; name: string }[]}
+    />
+  );
+}

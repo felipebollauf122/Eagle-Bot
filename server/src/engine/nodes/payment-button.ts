@@ -1,0 +1,371 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { NodeContext, NodeResult } from "../types.js";
+import type { SigiloPay } from "../../services/sigilopay.js";
+import { UtmifyService } from "../../services/utmify.js";
+import { FacebookCapi } from "../../services/facebook-capi.js";
+import { TrackingService } from "../../services/tracking-service.js";
+import { addPaymentTimeoutJob } from "../../queue.js";
+
+interface BundleProduct {
+  id: string;
+  name: string;
+  price: number; // cents
+  currency: string;
+  is_active: boolean;
+  ghost_name: string | null;
+  ghost_description: string | null;
+}
+
+interface BundleItem {
+  id: string;
+  product_id: string;
+  sort_order: number;
+  products: BundleProduct;
+}
+
+interface Bundle {
+  id: string;
+  name: string;
+  message_text: string;
+  is_active: boolean;
+  product_bundle_items: BundleItem[];
+}
+
+export async function handlePaymentBundleNode(
+  ctx: NodeContext,
+  db: SupabaseClient,
+  _sigiloPay: SigiloPay,
+  _baseWebhookUrl: string,
+): Promise<NodeResult> {
+  const bundleId = String(ctx.node.data.bundle_id ?? "");
+
+  if (!bundleId) {
+    await ctx.telegram.sendMessage({
+      chatId: ctx.chatId,
+      text: "Erro: nenhum conjunto de produtos configurado.",
+    });
+    return { nextNodeId: null };
+  }
+
+  // Fetch bundle with products
+  const { data: bundle, error } = await db
+    .from("product_bundles")
+    .select("id, name, message_text, is_active, product_bundle_items(id, product_id, sort_order, products(id, name, price, currency, is_active, ghost_name, ghost_description))")
+    .eq("id", bundleId)
+    .single();
+
+  if (error || !bundle) {
+    console.error(`[payment_button] Bundle not found: ${bundleId}`, error);
+    await ctx.telegram.sendMessage({
+      chatId: ctx.chatId,
+      text: "Desculpe, os produtos estão indisponíveis no momento.",
+    });
+    return { nextNodeId: null };
+  }
+
+  const typedBundle = bundle as unknown as Bundle;
+
+  // Filter only active products and sort
+  const items = typedBundle.product_bundle_items
+    .filter((item) => item.products && item.products.is_active)
+    .sort((a, b) => a.sort_order - b.sort_order);
+
+  if (items.length === 0) {
+    await ctx.telegram.sendMessage({
+      chatId: ctx.chatId,
+      text: "Desculpe, não há produtos disponíveis no momento.",
+    });
+    return { nextNodeId: null };
+  }
+
+  // Build inline keyboard — one button per product with name + price
+  const inlineKeyboard = items.map((item) => {
+    const product = item.products;
+    const priceInReais = product.price / 100;
+    const priceFormatted = priceInReais.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: product.currency,
+    });
+    return [
+      {
+        text: `${product.name} por ${priceFormatted}`,
+        callback_data: `pay:${product.id}`,
+      },
+    ];
+  });
+
+  // Send single message with header text + all product buttons
+  const messageIds: number[] = [];
+  const msg = await ctx.telegram.sendMessage({
+    chatId: ctx.chatId,
+    text: typedBundle.message_text,
+    replyMarkup: { inline_keyboard: inlineKeyboard },
+  });
+  if (msg) messageIds.push(msg.message_id);
+
+  // Fire view_offer → Facebook ViewContent
+  const { data: botForTracking } = await db
+    .from("bots")
+    .select("facebook_pixel_id, facebook_access_token, utmify_api_key")
+    .eq("id", ctx.lead.bot_id)
+    .single();
+
+  if (botForTracking) {
+    const fbCapi = new FacebookCapi(botForTracking.facebook_pixel_id ?? "", botForTracking.facebook_access_token ?? "");
+    const utmSvc = new UtmifyService(botForTracking.utmify_api_key ?? "");
+    const trackingSvc = new TrackingService(db, fbCapi, utmSvc);
+    trackingSvc.trackViewOffer({
+      tenantId: ctx.lead.tenant_id,
+      leadId: ctx.lead.id,
+      botId: ctx.lead.bot_id,
+      lead: {
+        id: ctx.lead.id,
+        tid: ctx.lead.tid,
+        fbclid: ctx.lead.fbclid,
+        firstName: ctx.lead.first_name,
+        utmSource: ctx.lead.utm_source ?? undefined,
+        utmMedium: ctx.lead.utm_medium ?? undefined,
+        utmCampaign: ctx.lead.utm_campaign ?? undefined,
+        utmContent: ctx.lead.utm_content ?? undefined,
+        utmTerm: ctx.lead.utm_term ?? undefined,
+      },
+      contentName: typedBundle.name,
+    }).catch((e) => console.error("[tracking] Failed to track view_offer:", e));
+  }
+
+  // Save state: we're waiting for a product selection
+  return {
+    nextNodeId: "wait",
+    messageIds: messageIds.length > 0 ? messageIds : undefined,
+    stateUpdates: {
+      pending_payment_node_id: ctx.node.id,
+      pending_bundle_id: bundleId,
+      awaiting_product_selection: true,
+    },
+  };
+}
+
+// Handle when user clicks a "pay" button — called from flow-processor
+export async function handleProductPaymentCallback(
+  ctx: NodeContext,
+  db: SupabaseClient,
+  sigiloPay: SigiloPay,
+  baseWebhookUrl: string,
+  productId: string,
+): Promise<NodeResult> {
+  // Fetch product
+  const { data: product } = await db
+    .from("products")
+    .select("id, name, price, currency, is_active, ghost_name, ghost_description")
+    .eq("id", productId)
+    .single();
+
+  if (!product) {
+    await ctx.telegram.sendMessage({
+      chatId: ctx.chatId,
+      text: "Desculpe, este produto está indisponível.",
+    });
+    return { nextNodeId: "wait" };
+  }
+
+  const typedProduct = product as BundleProduct;
+  const isBlack = ctx.lead.active_flow_name === "_black_flow";
+  const gatewayName = isBlack && typedProduct.ghost_name ? typedProduct.ghost_name : typedProduct.name;
+  const gatewayDescription = isBlack && typedProduct.ghost_description ? typedProduct.ghost_description : undefined;
+  console.log(`[payment] active_flow_name="${ctx.lead.active_flow_name}", isBlack=${isBlack}, ghost_name="${typedProduct.ghost_name}", gatewayName="${gatewayName}"`);
+  const identifier = `eaglebot_${ctx.lead.id}_${Date.now()}`;
+  const amountInReais = typedProduct.price / 100;
+
+  // Build client data from lead info (fallbacks are valid test values)
+  const clientEmail = String(ctx.lead.state.email ?? `${ctx.lead.telegram_user_id}@eaglebot.temp`);
+  const clientPhone = String(ctx.lead.state.phone ?? "11999999999");
+  const clientDocument = String(ctx.lead.state.document ?? "52998224725");
+
+  const callbackUrl = `${baseWebhookUrl}/webhook/payment/${ctx.lead.bot_id}`;
+  let payment;
+  try {
+    payment = await sigiloPay.createPixPayment({
+      identifier,
+      amount: amountInReais,
+      description: gatewayName,
+      clientName: ctx.lead.first_name,
+      clientEmail,
+      clientPhone,
+      clientDocument,
+      products: [
+        {
+          id: typedProduct.id,
+          name: gatewayName,
+          quantity: 1,
+          price: amountInReais,
+        },
+      ],
+      callbackUrl,
+      metadata: {
+        lead_id: ctx.lead.id,
+        bot_id: ctx.lead.bot_id,
+        flow_id: ctx.lead.current_flow_id ?? "",
+      },
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[payment] SigiloPay failed for product ${productId}, lead ${ctx.lead.id}:`, errorMsg);
+    await ctx.telegram.sendMessage({
+      chatId: ctx.chatId,
+      text: `⚠️ Erro no pagamento: ${errorMsg}`,
+    });
+    return { nextNodeId: "wait" };
+  }
+
+  // Create transaction record
+  const { data: txRecord } = await db.from("transactions").insert({
+    tenant_id: ctx.lead.tenant_id,
+    lead_id: ctx.lead.id,
+    bot_id: ctx.lead.bot_id,
+    flow_id: ctx.lead.current_flow_id,
+    product_id: typedProduct.id,
+    gateway: "sigilopay",
+    external_id: payment.transactionId,
+    amount: typedProduct.price,
+    currency: typedProduct.currency,
+    status: "pending",
+  }).select("id").single();
+
+  // Fire checkout (Facebook InitiateCheckout) + Utmify waiting_payment
+  const { data: botConfig } = await db
+    .from("bots")
+    .select("facebook_pixel_id, facebook_access_token, utmify_api_key")
+    .eq("id", ctx.lead.bot_id)
+    .single();
+
+  if (botConfig) {
+    const fbCapi = new FacebookCapi(botConfig.facebook_pixel_id ?? "", botConfig.facebook_access_token ?? "");
+    const utmSvc = new UtmifyService(botConfig.utmify_api_key ?? "");
+    const trackingSvc = new TrackingService(db, fbCapi, utmSvc);
+
+    const leadInfo = {
+      id: ctx.lead.id,
+      tid: ctx.lead.tid,
+      fbclid: ctx.lead.fbclid,
+      firstName: ctx.lead.first_name,
+      email: clientEmail,
+      phone: clientPhone,
+      utmSource: ctx.lead.utm_source ?? undefined,
+      utmMedium: ctx.lead.utm_medium ?? undefined,
+      utmCampaign: ctx.lead.utm_campaign ?? undefined,
+      utmContent: ctx.lead.utm_content ?? undefined,
+      utmTerm: ctx.lead.utm_term ?? undefined,
+    };
+
+    // Facebook InitiateCheckout event
+    trackingSvc.trackCheckout({
+      tenantId: ctx.lead.tenant_id,
+      leadId: ctx.lead.id,
+      botId: ctx.lead.bot_id,
+      amount: typedProduct.price,
+      currency: typedProduct.currency,
+      lead: leadInfo,
+      productId: typedProduct.id,
+      productName: typedProduct.name,
+    }).catch((e) => console.error("[tracking] Failed to track checkout:", e));
+
+    // Utmify waiting_payment
+    if (botConfig.utmify_api_key) {
+      utmSvc.sendOrder({
+        orderId: txRecord?.id ?? payment.transactionId,
+        status: "waiting_payment",
+        platform: "eaglebot",
+        paymentMethod: "pix",
+        customer: {
+          name: ctx.lead.first_name,
+          email: clientEmail,
+          phone: clientPhone,
+          document: clientDocument,
+        },
+        products: [{
+          id: typedProduct.id,
+          name: typedProduct.name,
+          priceInCents: String(typedProduct.price),
+          quantity: 1,
+        }],
+        trackingParameters: {
+          src: ctx.lead.tid ?? null,
+          sck: ctx.lead.fbclid ?? null,
+          utm_source: ctx.lead.utm_source ?? undefined,
+          utm_medium: ctx.lead.utm_medium ?? undefined,
+          utm_campaign: ctx.lead.utm_campaign ?? undefined,
+          utm_content: ctx.lead.utm_content ?? undefined,
+          utm_term: ctx.lead.utm_term ?? undefined,
+        },
+      }).catch((e) => console.error("[utmify] Failed to send waiting_payment:", e));
+    }
+  }
+
+  const priceFormatted = amountInReais.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: typedProduct.currency,
+  });
+
+  console.log(`[payment] pixImage from SigiloPay: ${payment.pixImage ?? "null"}`);
+
+  // Generate QR code URL from pix code if SigiloPay didn't provide one
+  const qrCodeUrl = payment.pixImage
+    || `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(payment.pixCode)}`;
+
+  // Send payment details with QR Code button
+  const paymentMsg = await ctx.telegram.sendMessage({
+    chatId: ctx.chatId,
+    text: [
+      `🌟 Você selecionou o seguinte plano:`,
+      ``,
+      `🎁 Plano: ${typedProduct.name}`,
+      `💰 Valor: ${priceFormatted}`,
+      ``,
+      `💳 Total: ${priceFormatted}`,
+      ``,
+      `💠 Pague via Pix Copia e Cola:`,
+      ``,
+      `<code>${payment.pixCode}</code>`,
+      ``,
+      `👆 Toque no código acima para copiá-lo`,
+      ``,
+      `‼️ Após o pagamento seu acesso será liberado automaticamente.`,
+    ].join("\n"),
+    replyMarkup: {
+      inline_keyboard: [
+        [{ text: "📋 Copiar código Pix", copy_text: { text: payment.pixCode } }],
+        [{ text: "📱 Ver QR Code", callback_data: `qrcode:${ctx.node.id}` }],
+      ],
+    },
+  });
+
+  // Schedule payment timeout — fires "not_paid" edge if payment not confirmed in time
+  const timeoutMinutes = Number(ctx.node.data.payment_timeout_minutes ?? 15);
+  if (timeoutMinutes > 0 && ctx.lead.current_flow_id) {
+    addPaymentTimeoutJob(
+      {
+        leadId: ctx.lead.id,
+        flowId: ctx.lead.current_flow_id,
+        paymentNodeId: ctx.node.id,
+        externalTransactionId: payment.transactionId,
+        botId: ctx.lead.bot_id,
+        tenantId: ctx.lead.tenant_id,
+        chatId: ctx.chatId,
+      },
+      timeoutMinutes * 60,
+    ).catch((e) => console.error("[payment] Failed to schedule timeout:", e));
+  }
+
+  return {
+    nextNodeId: "wait",
+    messageIds: paymentMsg ? [paymentMsg.message_id] : undefined,
+    stateUpdates: {
+      pending_transaction_id: payment.transactionId,
+      pending_payment_node_id: ctx.node.id,
+      pending_identifier: identifier,
+      pending_pix_code: payment.pixCode,
+      pending_pix_image: qrCodeUrl,
+      awaiting_product_selection: false,
+    },
+  };
+}

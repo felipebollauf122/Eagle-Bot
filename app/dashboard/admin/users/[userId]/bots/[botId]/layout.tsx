@@ -33,6 +33,7 @@ export default async function AdminBotLayout({
       <BotSidebar
         botId={botId}
         botUsername={typedBot.bot_username}
+        avatarUrl={typedBot.avatar_url}
         basePath={`/dashboard/admin/users/${userId}/bots/${botId}`}
       />
       <main className="flex-1">{children}</main>

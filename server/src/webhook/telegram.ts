@@ -1,0 +1,290 @@
+import type { Request, Response } from "express";
+import { supabase } from "../db.js";
+import { TelegramApi } from "../telegram/api.js";
+import { FlowProcessor } from "../engine/flow-processor.js";
+import { LeadService } from "../services/lead-service.js";
+import { TrackingService } from "../services/tracking-service.js";
+import { FacebookCapi } from "../services/facebook-capi.js";
+import { UtmifyService } from "../services/utmify.js";
+import { addDelayedJob } from "../queue.js";
+import { SigiloPay } from "../services/sigilopay.js";
+import { config } from "../config.js";
+import { botCache } from "../cache.js";
+
+interface Bot {
+  id: string;
+  tenant_id: string;
+  telegram_token: string;
+  is_active: boolean;
+  black_enabled: boolean;
+  sigilopay_public_key: string | null;
+  sigilopay_secret_key: string | null;
+  facebook_pixel_id: string | null;
+  facebook_access_token: string | null;
+  utmify_api_key: string | null;
+}
+
+const leadService = new LeadService(supabase);
+
+/**
+ * Sanitize and extract TID from /start payload.
+ * Returns the tid string if valid, undefined otherwise.
+ */
+function extractTidFromPayload(text: string): string | undefined {
+  if (!text.startsWith("/start ")) return undefined;
+  const param = text.split(" ")[1]?.trim();
+  if (!param) return undefined;
+  // Accept tid_ or TID_ prefix
+  if (param.startsWith("tid_") || param.startsWith("TID_")) {
+    // Sanitize: only allow alphanumeric and underscore
+    const sanitized = param.replace(/[^a-zA-Z0-9_]/g, "");
+    return sanitized.length > 4 ? sanitized : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Determine which flow to execute on /start:
+ * - _black_flow: ONLY when /start has valid payload + TID exists in tracking_events
+ * - _visual_flow: everything else
+ *
+ * Returns the flow name to execute.
+ */
+async function resolveFlowName(
+  bot: Bot,
+  messageText: string,
+): Promise<{ flowName: string; tid?: string; trackingData: Record<string, string | undefined> }> {
+  const trackingData: Record<string, string | undefined> = {};
+
+  // Only check for black flow if black is enabled on the bot
+  if (!bot.black_enabled) {
+    const tid = extractTidFromPayload(messageText);
+    if (tid) {
+      const resolved = await resolveTrackingData(tid);
+      return { flowName: "_visual_flow", tid, trackingData: resolved };
+    }
+    return { flowName: "_visual_flow", trackingData };
+  }
+
+  // BLACK FLOW DECISION: requires ALL conditions
+  // 1. Message must be /start
+  if (!messageText.startsWith("/start")) {
+    return { flowName: "_visual_flow", trackingData };
+  }
+
+  // 2. Must have payload
+  const tid = extractTidFromPayload(messageText);
+  if (!tid) {
+    // /start without payload → visual flow
+    return { flowName: "_visual_flow", trackingData };
+  }
+
+  // 3. TID must exist in tracking_events (page_view)
+  const { data: trackingEvent } = await supabase
+    .from("tracking_events")
+    .select("*")
+    .eq("tid", tid)
+    .eq("event_type", "page_view")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!trackingEvent) {
+    // TID not found → invalid payload → visual flow
+    console.log(`[black] TID ${tid} not found in tracking_events, falling back to _visual_flow`);
+    return { flowName: "_visual_flow", tid, trackingData };
+  }
+
+  // ALL conditions met → black flow
+  const utmParams = (trackingEvent.utm_params ?? {}) as Record<string, string>;
+  const resolvedTracking: Record<string, string | undefined> = {
+    fbclid: trackingEvent.fbclid ?? undefined,
+    utmSource: utmParams.utm_source,
+    utmMedium: utmParams.utm_medium,
+    utmCampaign: utmParams.utm_campaign,
+    utmContent: utmParams.utm_content,
+    utmTerm: utmParams.utm_term,
+  };
+
+  console.log(`[black] ✓ TID ${tid} validated, executing _black_flow`);
+  return { flowName: "_black_flow", tid, trackingData: resolvedTracking };
+}
+
+async function resolveTrackingData(tid: string): Promise<Record<string, string | undefined>> {
+  const { data: trackingEvent } = await supabase
+    .from("tracking_events")
+    .select("*")
+    .eq("tid", tid)
+    .eq("event_type", "page_view")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!trackingEvent) return {};
+
+  const utmParams = (trackingEvent.utm_params ?? {}) as Record<string, string>;
+  return {
+    fbclid: trackingEvent.fbclid ?? undefined,
+    utmSource: utmParams.utm_source,
+    utmMedium: utmParams.utm_medium,
+    utmCampaign: utmParams.utm_campaign,
+    utmContent: utmParams.utm_content,
+    utmTerm: utmParams.utm_term,
+  };
+}
+
+export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
+  const botId = String(req.params.botId);
+
+  // Respond immediately to Telegram (they timeout at 60s)
+  res.status(200).json({ ok: true });
+
+  try {
+    // Hot path: check cache first, then DB
+    let bot = botCache.get(botId) as Bot | undefined;
+    if (!bot) {
+      const { data } = await supabase
+        .from("bots")
+        .select("*")
+        .eq("id", botId)
+        .eq("is_active", true)
+        .single();
+      if (!data) {
+        console.error(`Bot not found or inactive: ${botId}`);
+        return;
+      }
+      bot = data as Bot;
+      botCache.set(botId, data);
+    }
+
+    const typedBot = bot;
+    const telegram = new TelegramApi(typedBot.telegram_token);
+    const sigiloPay = new SigiloPay(typedBot.sigilopay_public_key ?? "", typedBot.sigilopay_secret_key ?? "");
+    const processor = new FlowProcessor(supabase, leadService, { addDelayedJob }, {
+      sigiloPay,
+      baseWebhookUrl: config.baseWebhookUrl,
+    });
+
+    const update = req.body;
+
+    // Detect SigiloPay callbacks landing on the wrong endpoint
+    if (update.transactionId || update.transaction_id || update.order || (update.status && !update.message && !update.callback_query)) {
+      console.warn(`[webhook] ⚠️ Payment callback landed on Telegram endpoint! Redirecting... Body:`, JSON.stringify(update));
+      const { processPaymentCallback } = await import("./payment.js");
+      await processPaymentCallback(botId, update);
+      return;
+    }
+
+    console.log(`[webhook] Update received for bot ${botId}: type=${update.message ? 'message' : update.callback_query ? 'callback_query' : 'unknown'}`);
+
+    // Handle message
+    if (update.message) {
+      const msg = update.message;
+      const chatId = msg.chat.id;
+      const telegramUserId = msg.from.id;
+      const firstName = msg.from.first_name ?? "";
+      const username = msg.from.username ?? null;
+      const text = msg.text ?? "";
+
+      // Resolve which flow to use and extract tracking data
+      const isStartCommand = text.startsWith("/start");
+      let flowName: string | undefined;
+      let tid: string | undefined;
+      let trackingData: Record<string, string | undefined> = {};
+
+      if (isStartCommand) {
+        const resolved = await resolveFlowName(typedBot, text);
+        flowName = resolved.flowName;
+        tid = resolved.tid;
+        trackingData = resolved.trackingData;
+        console.log(`[webhook] /start resolved: flowName=${flowName}, tid=${tid}`);
+      } else {
+        // Non-/start messages: extract tid only for tracking (no flow decision)
+        tid = extractTidFromPayload(text);
+        if (tid) {
+          trackingData = await resolveTrackingData(tid);
+        }
+      }
+
+      // Find or create lead
+      const lead = await leadService.findOrCreateLead({
+        botId: typedBot.id,
+        tenantId: typedBot.tenant_id,
+        telegramUserId,
+        firstName,
+        username,
+        tid,
+        ...trackingData,
+      });
+
+      // Register bot_start tracking event + Facebook CAPI Lead event
+      // Fire-and-forget: don't block the flow execution on tracking
+      if (tid && lead.tid === tid) {
+        const facebookCapi = new FacebookCapi(
+          typedBot.facebook_pixel_id ?? "",
+          typedBot.facebook_access_token ?? "",
+        );
+        const utmify = new UtmifyService(typedBot.utmify_api_key ?? "");
+        const trackingService = new TrackingService(supabase, facebookCapi, utmify);
+
+        trackingService.trackLead({
+          tenantId: typedBot.tenant_id,
+          leadId: lead.id,
+          botId: typedBot.id,
+          lead: {
+            id: lead.id,
+            tid: lead.tid,
+            fbclid: lead.fbclid,
+            firstName: lead.first_name,
+            utmSource: lead.utm_source ?? undefined,
+            utmMedium: lead.utm_medium ?? undefined,
+            utmCampaign: lead.utm_campaign ?? undefined,
+            utmContent: lead.utm_content ?? undefined,
+            utmTerm: lead.utm_term ?? undefined,
+          },
+        }).catch((err) => console.error("[tracking] trackLead error:", err));
+      }
+
+      // On /start, route to the correct named flow
+      if (isStartCommand && flowName) {
+        await processor.handleStartCommand(typedBot, lead, telegram, chatId, text, flowName);
+      } else {
+        // Non-/start messages: use normal flow processing (respects active_flow_name)
+        await processor.handleIncomingMessage(typedBot, lead, telegram, chatId, text);
+      }
+    }
+
+    // Handle callback query (button clicks)
+    if (update.callback_query) {
+      const cb = update.callback_query;
+      const chatId = cb.message?.chat?.id;
+      const telegramUserId = cb.from.id;
+      const callbackData = cb.data ?? "";
+
+      console.log(`[webhook] Callback query from ${telegramUserId}: "${callbackData}"`);
+
+      if (!chatId) return;
+
+      const lead = await leadService.findOrCreateLead({
+        botId: typedBot.id,
+        tenantId: typedBot.tenant_id,
+        telegramUserId,
+        firstName: cb.from.first_name ?? "",
+        username: cb.from.username ?? null,
+      });
+
+      console.log(`[webhook] Lead ${lead.id}, flow=${lead.current_flow_id}, node=${lead.current_node_id}, active_flow_name=${lead.active_flow_name}`);
+
+      await processor.handleCallbackQuery(typedBot, lead, telegram, chatId, callbackData);
+
+      // Answer callback query to remove loading indicator on button
+      try {
+        await telegram.answerCallbackQuery(cb.id);
+      } catch {
+        // Ignore - not critical
+      }
+    }
+  } catch (error) {
+    console.error(`Error processing webhook for bot ${botId}:`, error);
+  }
+}

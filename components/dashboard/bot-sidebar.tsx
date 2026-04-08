@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 interface BotSidebarProps {
   botId: string;
   botUsername: string;
+  avatarUrl?: string | null;
   basePath?: string;
 }
 
@@ -19,7 +20,7 @@ const botNavItems = [
   { label: "Configuracoes", segment: "settings", icon: "M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z", color: "var(--text-secondary)" },
 ];
 
-export function BotSidebar({ botId, botUsername, basePath: baseProp }: BotSidebarProps) {
+export function BotSidebar({ botId, botUsername, avatarUrl, basePath: baseProp }: BotSidebarProps) {
   const pathname = usePathname();
   const base = baseProp ?? `/dashboard/bots/${botId}`;
   const backUrl = baseProp ? baseProp.replace(/\/bots\/.*$/, "") : "/dashboard";
@@ -46,7 +47,11 @@ export function BotSidebar({ botId, botUsername, basePath: baseProp }: BotSideba
           Voltar
         </a>
         <div className="flex items-center gap-2.5">
-          <img src="/logo.png" alt="" className="w-8 h-8 object-contain drop-shadow-[0_0_6px_rgba(34,211,238,0.2)]" />
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" className="w-8 h-8 rounded-lg object-cover" />
+          ) : (
+            <img src="/logo.png" alt="" className="w-8 h-8 object-contain drop-shadow-[0_0_6px_rgba(34,211,238,0.2)]" />
+          )}
           <h2 className="text-sm font-bold text-foreground truncate tracking-tight">
             @{botUsername}
           </h2>

@@ -1,0 +1,45 @@
+import { createClient } from "@/lib/supabase/server";
+import { notFound } from "next/navigation";
+import { FlowEditor } from "@/components/dashboard/flow-builder/flow-editor";
+import { saveRemarketingFlowData } from "@/lib/actions/remarketing-actions";
+import type { RemarketingFlow } from "@/lib/types/database";
+
+export default async function RemarketingFlowEditorPage({
+  params,
+}: {
+  params: Promise<{ botId: string; flowId: string }>;
+}) {
+  const { botId, flowId } = await params;
+  const supabase = await createClient();
+
+  const [{ data: flow }, { data: bundles }] = await Promise.all([
+    supabase
+      .from("remarketing_flows")
+      .select("*")
+      .eq("id", flowId)
+      .eq("bot_id", botId)
+      .single(),
+    supabase
+      .from("product_bundles")
+      .select("id, name, is_active")
+      .eq("bot_id", botId)
+      .eq("is_active", true)
+      .order("name"),
+  ]);
+
+  if (!flow) notFound();
+
+  const typedFlow = flow as RemarketingFlow;
+
+  return (
+    <FlowEditor
+      flowId={typedFlow.id}
+      flowName={typedFlow.name}
+      initialData={typedFlow.flow_data}
+      botId={botId}
+      bundles={(bundles ?? []) as { id: string; name: string }[]}
+      saveAction={saveRemarketingFlowData}
+      backUrl={`/dashboard/bots/${botId}/remarketing`}
+    />
+  );
+}
