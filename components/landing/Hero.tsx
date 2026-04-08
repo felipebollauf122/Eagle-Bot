@@ -65,7 +65,7 @@ export default function Hero() {
             {/* CTA row */}
             <div className="animate-fade-up-5 flex flex-col sm:flex-row gap-4 items-start">
               <a
-                href="/cadastro"
+                href="/register"
                 className="group inline-flex items-center gap-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-8 py-3.5 rounded-xl transition-all duration-200 shadow-xl shadow-indigo-500/25 hover:shadow-indigo-500/45 hover:-translate-y-0.5"
               >
                 Criar meu bot grátis

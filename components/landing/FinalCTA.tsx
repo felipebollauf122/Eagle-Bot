@@ -45,7 +45,7 @@ export default function FinalCTA() {
 
           <div className="flex flex-col sm:flex-row gap-4 items-start">
             <a
-              href="/cadastro"
+              href="/register"
               className="group inline-flex items-center gap-3 bg-white hover:bg-slate-100 text-slate-900 font-semibold px-8 py-4 rounded-xl transition-all duration-200 shadow-2xl shadow-white/10 hover:-translate-y-0.5"
             >
               Criar meu bot grátis

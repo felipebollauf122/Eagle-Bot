@@ -87,7 +87,7 @@ export default function HowItWorksSection() {
         {/* CTA */}
         <div className="mt-16 pt-12 border-t border-white/[0.06]">
           <a
-            href="/cadastro"
+            href="/register"
             className="inline-flex items-center gap-2.5 text-sm font-semibold text-indigo-400 hover:text-indigo-300 transition-colors group"
           >
             Quero começar agora

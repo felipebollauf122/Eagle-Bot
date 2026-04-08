@@ -25,7 +25,7 @@ export default async function AdminBotSettingsPage({
 
   return (
     <div className="p-8">
-      <BotSettingsForm bot={bot as Bot} />
+      <BotSettingsForm bot={bot as Bot} isAdmin />
     </div>
   );
 }

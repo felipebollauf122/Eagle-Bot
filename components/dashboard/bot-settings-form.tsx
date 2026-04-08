@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { saveBotSettings, updateBotAvatar } from "@/lib/actions/bot-settings-actions";
+import { saveBotSettings, updateBotAvatar, toggleBlackEnabled } from "@/lib/actions/bot-settings-actions";
 import { uploadMedia } from "@/lib/actions/upload-actions";
 import type { Bot } from "@/lib/types/database";
 
 interface BotSettingsFormProps {
   bot: Bot;
+  isAdmin?: boolean;
 }
 
 const sections = [
@@ -17,12 +18,14 @@ const sections = [
   { key: "tracking", label: "Pagina de Tracking", desc: "Configuracao da pagina de redirecionamento", icon: "M21 12a9 9 0 11-6.219-8.56", color: "var(--amber)" },
 ];
 
-export function BotSettingsForm({ bot }: BotSettingsFormProps) {
+export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [isActive, setIsActive] = useState(bot.is_active);
   const [activating, setActivating] = useState(false);
   const [activateError, setActivateError] = useState<string | null>(null);
+  const [blackEnabled, setBlackEnabled] = useState(bot.black_enabled ?? false);
+  const [togglingBlack, setTogglingBlack] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(bot.avatar_url ?? "");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -248,6 +251,45 @@ export function BotSettingsForm({ bot }: BotSettingsFormProps) {
           </button>
           {activateError && <span className="text-(--red) text-xs font-medium">{activateError}</span>}
         </div>
+
+        {/* Black Flow Toggle — admin only */}
+        {isAdmin && (
+          <div className="mt-6 pt-5 border-t border-(--border-subtle)">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="section-icon w-8 h-8" style={{ background: "color-mix(in srgb, var(--red) 14%, transparent)", boxShadow: "0 0 12px -4px var(--red)" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-foreground font-semibold text-sm tracking-tight">Fluxo Black</h3>
+                  <p className="text-(--text-muted) text-xs">Ativar fluxo alternativo para trafego pago</p>
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  setTogglingBlack(true);
+                  try {
+                    await toggleBlackEnabled(bot.id, !blackEnabled);
+                    setBlackEnabled(!blackEnabled);
+                  } catch (e) {
+                    console.error(e);
+                  } finally {
+                    setTogglingBlack(false);
+                  }
+                }}
+                disabled={togglingBlack}
+                className={`relative w-11 h-6 rounded-full transition-all duration-200 ${blackEnabled ? "bg-(--red)" : "bg-(--border-default)"}`}
+                style={blackEnabled ? { boxShadow: "0 0 12px -2px rgba(239,68,68,0.4)" } : {}}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${blackEnabled ? "translate-x-5" : "translate-x-0"}`}
+                />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Facebook */}

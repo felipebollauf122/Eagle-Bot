@@ -49,7 +49,7 @@ export default function Navbar() {
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center gap-4">
             <a
-              href="/cadastro"
+              href="/register"
               className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-5 py-2 rounded-lg transition-all duration-200 shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/35"
             >
               Criar bot grátis
@@ -85,7 +85,7 @@ export default function Navbar() {
               </a>
             ))}
             <a
-              href="/cadastro"
+              href="/register"
               className="mt-3 flex justify-center items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold py-3 rounded-lg transition-all"
             >
               Criar bot grátis
