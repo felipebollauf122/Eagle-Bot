@@ -5,7 +5,7 @@
  * Fire-and-forget: doesn't throw on failure (cache will expire naturally via TTL).
  */
 export async function invalidateBotCache(botId: string): Promise<void> {
-  const serverUrl = process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "http://localhost:3001";
+  const serverUrl = (process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "http://localhost:3001").replace(/\/+$/, "");
   try {
     await fetch(`${serverUrl}/api/bots/${botId}/invalidate-cache`, {
       method: "POST",

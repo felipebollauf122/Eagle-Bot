@@ -36,7 +36,8 @@
       "Bash(wmic process:*)",
       "Bash(powershell \"Get-Process -Id 28924 | Select-Object ProcessName,Path\")",
       "Bash(curl -s http://localhost:3002/health)",
-      "Bash(curl -s https://noneccentrically-protonematal-gwen.ngrok-free.dev/health -H \"ngrok-skip-browser-warning: true\")"
+      "Bash(curl -s https://noneccentrically-protonematal-gwen.ngrok-free.dev/health -H \"ngrok-skip-browser-warning: true\")",
+      "Bash(curl -s https://eaglebot-server-production.up.railway.app/)"
     ]
   }
 }

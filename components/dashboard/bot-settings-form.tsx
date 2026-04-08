@@ -97,7 +97,7 @@ export function BotSettingsForm({ bot }: BotSettingsFormProps) {
     setActivating(true);
     setActivateError(null);
     try {
-      const serverUrl = process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "http://localhost:3001";
+      const serverUrl = (process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "http://localhost:3001").replace(/\/+$/, "");
       if (!isActive) {
         const res = await fetch(`${serverUrl}/api/bots/${bot.id}/register-webhook`, { method: "POST" });
         const data = await res.json();
