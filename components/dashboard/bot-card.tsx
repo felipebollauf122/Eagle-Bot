@@ -10,7 +10,10 @@ interface BotCardProps {
 export function BotCard({ bot }: BotCardProps) {
   const [copied, setCopied] = useState(false);
 
-  const trackingUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/t?bot=${bot.id}`;
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+  const trackingUrl = bot.utmify_api_key
+    ? `bot=${bot.id}&utm_source=FB&utm_campaign={{campaign.name}}|{{campaign.id}}&utm_medium={{adset.name}}|{{adset.id}}&utm_content={{ad.name}}|{{ad.id}}&utm_term={{placement}}`
+    : `${baseUrl}/t?bot=${bot.id}`;
 
   function handleCopyTracking(e: React.MouseEvent) {
     e.preventDefault();

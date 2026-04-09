@@ -169,10 +169,9 @@ export async function handleProductPaymentCallback(
   }
 
   const typedProduct = product as BundleProduct;
-  const isBlack = ctx.lead.active_flow_name === "_black_flow";
-  // Real name always goes to the gateway (SigiloPay); ghost name goes to the client if available
-  const displayName = isBlack && typedProduct.ghost_name ? typedProduct.ghost_name : typedProduct.name;
-  console.log(`[payment] active_flow_name="${ctx.lead.active_flow_name}", isBlack=${isBlack}, ghost_name="${typedProduct.ghost_name}", displayName="${displayName}"`);
+  // Ghost name is shown to the client if available; real name always goes to the gateway
+  const displayName = typedProduct.ghost_name || typedProduct.name;
+  console.log(`[payment] ghost_name="${typedProduct.ghost_name}", displayName="${displayName}"`);
   const identifier = `eaglebot_${ctx.lead.id}_${Date.now()}`;
   const amountInReais = typedProduct.price / 100;
 
