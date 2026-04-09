@@ -50,6 +50,8 @@ export interface NodeResult {
   delaySeconds?: number;
   /** Message IDs sent by this node (used by black flow for auto-deletion) */
   messageIds?: number[];
+  /** True when the user has blocked the bot — flow should stop and lead should be flagged */
+  blocked?: boolean;
 }
 
 export type NodeHandler = (ctx: NodeContext) => Promise<NodeResult>;

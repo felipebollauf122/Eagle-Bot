@@ -53,6 +53,12 @@ export async function executeNode(ctx: NodeContext, deps?: ExecuteNodeDeps): Pro
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error(`[executeNode] Error in node ${ctx.node.id} (type=${ctx.node.type}):`, errorMsg, error);
+
+    // If user blocked the bot, stop the flow silently — no point sending error messages
+    if (errorMsg.includes("bot was blocked by the user") || errorMsg.includes("Forbidden")) {
+      return { nextNodeId: null, blocked: true };
+    }
+
     try {
       await ctx.telegram.sendMessage({
         chatId: ctx.chatId,

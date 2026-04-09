@@ -137,11 +137,11 @@ export class FlowProcessor {
     chatId: number,
     startNodeId?: string,
     isBlack?: boolean,
-  ): Promise<void> {
+  ): Promise<{ blocked?: boolean }> {
     const { nodes, edges } = flow.flow_data;
 
     let currentNodeId = startNodeId ?? nodes.find((n) => n.type === "trigger")?.id;
-    if (!currentNodeId) return;
+    if (!currentNodeId) return {};
 
     const MAX_ITERATIONS = 50;
     let iterations = 0;
@@ -170,6 +170,12 @@ export class FlowProcessor {
       const result = await executeNode(ctx, this.executeDeps);
       console.log(`[flow] Node ${node.id} result: nextNodeId=${result.nextNodeId}, stateUpdates=${!!result.stateUpdates}`);
 
+      // User blocked the bot — stop flow immediately
+      if (result.blocked) {
+        console.log(`[flow] Lead ${lead.id} blocked the bot, stopping flow`);
+        return { blocked: true };
+      }
+
       // If black flow, capture message_ids from result for deletion queue
       if (isBlack && result.messageIds) {
         for (const msgId of result.messageIds) {
@@ -195,23 +201,24 @@ export class FlowProcessor {
           },
           result.delaySeconds,
         );
-        return;
+        return {};
       }
 
       if (result.nextNodeId === "wait") {
         await this.leadService.updatePosition(lead.id, flow.id, node.id);
-        return;
+        return {};
       }
 
       if (result.nextNodeId === null) {
         await this.leadService.updatePosition(lead.id, null, null);
-        return;
+        return {};
       }
 
       currentNodeId = result.nextNodeId;
     }
 
     await this.leadService.updatePosition(lead.id, null, null);
+    return {};
   }
 
   /**

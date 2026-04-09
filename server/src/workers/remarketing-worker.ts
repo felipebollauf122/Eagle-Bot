@@ -92,11 +92,12 @@ async function processConfig(db: SupabaseClient, cfg: RemarketingConfig): Promis
 
   const typedFlows = flows as RemarketingFlow[];
 
-  // Get all leads for this bot
+  // Get all leads for this bot (skip blocked ones)
   const { data: leads } = await db
     .from("leads")
     .select("*")
-    .eq("bot_id", cfg.bot_id);
+    .eq("bot_id", cfg.bot_id)
+    .neq("blocked", true);
 
   if (!leads || leads.length === 0) return;
 
@@ -209,7 +210,14 @@ async function processLeadRemarketing(
     updated_at: "",
   };
 
-  await processor.executeFlow(flowForProcessor, lead, telegram, lead.telegram_user_id);
+  const flowResult = await processor.executeFlow(flowForProcessor, lead, telegram, lead.telegram_user_id);
+
+  // If user blocked the bot, mark lead so we skip them in future remarketing
+  if (flowResult.blocked) {
+    console.log(`[remarketing] Lead ${lead.id} blocked the bot, marking as blocked`);
+    await db.from("leads").update({ blocked: true }).eq("id", lead.id);
+    return;
+  }
 
   // Update progress
   await db
