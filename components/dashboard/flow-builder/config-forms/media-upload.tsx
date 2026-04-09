@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { uploadMedia } from "@/lib/actions/upload-actions";
+import { createClient } from "@/lib/supabase/client";
+import { nanoid } from "nanoid";
 
 interface MediaUploadProps {
   value: string;
@@ -10,6 +11,12 @@ interface MediaUploadProps {
   label: string;
   placeholder?: string;
 }
+
+const ALLOWED_TYPES = [
+  "image/jpeg", "image/png", "image/gif", "image/webp",
+  "video/mp4", "video/webm", "video/quicktime",
+];
+const MAX_SIZE = 50 * 1024 * 1024; // 50MB
 
 export function MediaUpload({ value, onChange, accept, label, placeholder }: MediaUploadProps) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -20,10 +27,28 @@ export function MediaUpload({ value, onChange, accept, label, placeholder }: Med
     setUploading(true);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const { url } = await uploadMedia(formData);
-      onChange(url);
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        throw new Error(`Tipo de arquivo nao suportado: ${file.type}`);
+      }
+      if (file.size > MAX_SIZE) {
+        throw new Error("Arquivo muito grande. Maximo 50MB.");
+      }
+
+      const supabase = createClient();
+      const ext = file.name.split(".").pop() ?? "bin";
+      const fileName = `uploads/${nanoid()}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("media")
+        .upload(fileName, file, {
+          contentType: file.type,
+          upsert: false,
+        });
+
+      if (uploadError) throw new Error(`Falha no upload: ${uploadError.message}`);
+
+      const { data: urlData } = supabase.storage.from("media").getPublicUrl(fileName);
+      onChange(urlData.publicUrl);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro no upload");
     } finally {
