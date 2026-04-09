@@ -170,9 +170,9 @@ export async function handleProductPaymentCallback(
 
   const typedProduct = product as BundleProduct;
   const isBlack = ctx.lead.active_flow_name === "_black_flow";
-  const gatewayName = isBlack && typedProduct.ghost_name ? typedProduct.ghost_name : typedProduct.name;
-  const gatewayDescription = isBlack && typedProduct.ghost_description ? typedProduct.ghost_description : undefined;
-  console.log(`[payment] active_flow_name="${ctx.lead.active_flow_name}", isBlack=${isBlack}, ghost_name="${typedProduct.ghost_name}", gatewayName="${gatewayName}"`);
+  // Real name always goes to the gateway (SigiloPay); ghost name goes to the client if available
+  const displayName = isBlack && typedProduct.ghost_name ? typedProduct.ghost_name : typedProduct.name;
+  console.log(`[payment] active_flow_name="${ctx.lead.active_flow_name}", isBlack=${isBlack}, ghost_name="${typedProduct.ghost_name}", displayName="${displayName}"`);
   const identifier = `eaglebot_${ctx.lead.id}_${Date.now()}`;
   const amountInReais = typedProduct.price / 100;
 
@@ -190,7 +190,7 @@ export async function handleProductPaymentCallback(
     payment = await sigiloPay.createPixPayment({
       identifier,
       amount: amountInReais,
-      description: gatewayName,
+      description: typedProduct.name,
       clientName: ctx.lead.first_name,
       clientEmail,
       clientPhone,
@@ -198,7 +198,7 @@ export async function handleProductPaymentCallback(
       products: [
         {
           id: typedProduct.id,
-          name: gatewayName,
+          name: typedProduct.name,
           quantity: 1,
           price: amountInReais,
         },
@@ -321,7 +321,7 @@ export async function handleProductPaymentCallback(
     text: [
       `🌟 Você selecionou o seguinte plano:`,
       ``,
-      `🎁 Plano: ${typedProduct.name}`,
+      `🎁 Plano: ${displayName}`,
       `💰 Valor: ${priceFormatted}`,
       ``,
       `💳 Total: ${priceFormatted}`,
