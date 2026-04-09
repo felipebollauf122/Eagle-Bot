@@ -41,7 +41,8 @@
       "Bash(node -e \"const p = require\\('./node_modules/next/package.json'\\); console.log\\(p.version\\)\")",
       "Bash(node -e ':*)",
       "Bash(node -e \"try { require\\('nanoid'\\); console.log\\('ok'\\); } catch\\(e\\) { console.log\\('missing'\\); }\")",
-      "Bash(node -e \"import\\('nanoid'\\).then\\(m => console.log\\('ok', typeof m.nanoid\\)\\)\")"
+      "Bash(node -e \"import\\('nanoid'\\).then\\(m => console.log\\('ok', typeof m.nanoid\\)\\)\")",
+      "Bash(npx vitest:*)"
     ]
   }
 }

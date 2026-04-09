@@ -181,7 +181,10 @@ export async function handleProductPaymentCallback(
   const clientPhone = String(ctx.lead.state.phone ?? "11999999999");
   const clientDocument = String(ctx.lead.state.document ?? "52998224725");
 
-  const callbackUrl = `${baseWebhookUrl}/webhook/payment/${ctx.lead.bot_id}`;
+  // Single webhook URL for the entire platform (not per-bot) to avoid
+  // hitting SigiloPay's 20-webhook limit. The bot is resolved from the
+  // transaction record when the callback arrives.
+  const callbackUrl = `${baseWebhookUrl}/webhook/payment`;
   let payment;
   try {
     payment = await sigiloPay.createPixPayment({

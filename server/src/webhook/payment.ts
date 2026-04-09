@@ -64,8 +64,8 @@ function extractPaymentFields(body: Record<string, unknown>): { transactionId?: 
  * Core payment processing logic — can be called from either the payment
  * endpoint or redirected from the Telegram endpoint.
  */
-export async function processPaymentCallback(botId: string, body: Record<string, unknown>): Promise<void> {
-  console.log(`[payment-webhook] Processing callback for bot ${botId}:`, JSON.stringify(body));
+export async function processPaymentCallback(botId: string | null, body: Record<string, unknown>): Promise<void> {
+  console.log(`[payment-webhook] Processing callback (botId=${botId ?? "global"}):`, JSON.stringify(body));
 
   const { transactionId, status } = extractPaymentFields(body);
 
@@ -76,19 +76,24 @@ export async function processPaymentCallback(botId: string, body: Record<string,
 
   console.log(`[payment-webhook] Extracted: transactionId=${transactionId}, status=${status}`);
 
-  // Lookup transaction — try by external_id first, then by id
+  // Lookup transaction by external_id — optionally scoped to botId
   let transaction: Transaction | null = null;
-  const { data: txByExternal } = await supabase
-    .from("transactions")
-    .select("*")
-    .eq("external_id", transactionId)
-    .eq("bot_id", botId)
-    .maybeSingle();
 
-  if (txByExternal) {
-    transaction = txByExternal as Transaction;
-  } else {
-    // Maybe the transactionId is the DB id, or try without bot_id filter
+  if (botId) {
+    const { data: txByExternal } = await supabase
+      .from("transactions")
+      .select("*")
+      .eq("external_id", transactionId)
+      .eq("bot_id", botId)
+      .maybeSingle();
+
+    if (txByExternal) {
+      transaction = txByExternal as Transaction;
+    }
+  }
+
+  // Fallback: lookup without bot_id filter (covers global webhook + legacy)
+  if (!transaction) {
     const { data: txByExternalAny } = await supabase
       .from("transactions")
       .select("*")
@@ -248,7 +253,22 @@ export async function processPaymentCallback(botId: string, body: Record<string,
 }
 
 /**
- * Express handler for /webhook/payment/:botId
+ * Express handler for /webhook/payment (global — single webhook for the entire platform).
+ * Resolves the bot from the transaction record.
+ */
+export async function handlePaymentWebhookGlobal(req: Request, res: Response): Promise<void> {
+  res.status(200).json({ ok: true });
+
+  try {
+    await processPaymentCallback(null, req.body);
+  } catch (error) {
+    console.error(`[payment-webhook] Error (global):`, error);
+  }
+}
+
+/**
+ * Express handler for /webhook/payment/:botId (legacy — kept for backwards compatibility
+ * with webhooks already registered at SigiloPay).
  */
 export async function handlePaymentWebhook(req: Request, res: Response): Promise<void> {
   const botId = String(req.params.botId);

@@ -22,8 +22,11 @@ export async function saveBotSettings(botId: string, settings: BotSettings) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  // Verify bot belongs to this tenant
-  const { data: bot } = await supabase.from("bots").select("id").eq("id", botId).eq("tenant_id", user.id).single();
+  // Verify bot belongs to this tenant (admins can access any bot)
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
   if (!bot) throw new Error("Bot not found");
 
   const { error } = await supabase
@@ -52,11 +55,11 @@ export async function updateBotAvatar(botId: string, avatarUrl: string | null) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { data: bot } = await supabase.from("bots").select("id").eq("id", botId).eq("tenant_id", user.id).single();
-  if (!bot) {
-    const admin = await isAdmin();
-    if (!admin) throw new Error("Bot not found");
-  }
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
+  if (!bot) throw new Error("Bot not found");
 
   const { error } = await supabase
     .from("bots")

@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { isAdmin } from "@/lib/actions/admin-actions";
 import type { FlowData, RemarketingAudience } from "@/lib/types/database";
 
 async function verifyBot(botId: string) {
@@ -9,15 +10,13 @@ async function verifyBot(botId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { data: bot } = await supabase
-    .from("bots")
-    .select("id, tenant_id")
-    .eq("id", botId)
-    .eq("tenant_id", user.id)
-    .single();
+  const admin = await isAdmin();
+  let query = supabase.from("bots").select("id, tenant_id").eq("id", botId);
+  if (!admin) query = query.eq("tenant_id", user.id);
 
+  const { data: bot } = await query.single();
   if (!bot) throw new Error("Bot not found");
-  return { supabase, userId: user.id, tenantId: bot.tenant_id };
+  return { supabase, userId: user.id, tenantId: bot.tenant_id, admin };
 }
 
 /** Get or create the remarketing config for a bot */
@@ -56,12 +55,11 @@ export async function updateConfig(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { error } = await supabase
-    .from("remarketing_configs")
-    .update(updates)
-    .eq("id", configId)
-    .eq("tenant_id", user.id);
+  const admin = await isAdmin();
+  let query = supabase.from("remarketing_configs").update(updates).eq("id", configId);
+  if (!admin) query = query.eq("tenant_id", user.id);
 
+  const { error } = await query;
   if (error) throw new Error(`Failed to update config: ${error.message}`);
   return { success: true };
 }
@@ -72,13 +70,12 @@ export async function listFlows(configId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { data, error } = await supabase
-    .from("remarketing_flows")
-    .select("*")
-    .eq("config_id", configId)
-    .eq("tenant_id", user.id)
-    .order("sort_order", { ascending: true });
+  const admin = await isAdmin();
+  let query = supabase.from("remarketing_flows").select("*").eq("config_id", configId);
+  if (!admin) query = query.eq("tenant_id", user.id);
+  query = query.order("sort_order", { ascending: true });
 
+  const { data, error } = await query;
   if (error) throw new Error(`Failed to list flows: ${error.message}`);
   return data ?? [];
 }
@@ -134,12 +131,11 @@ export async function updateRemarketingFlow(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { error } = await supabase
-    .from("remarketing_flows")
-    .update(updates)
-    .eq("id", flowId)
-    .eq("tenant_id", user.id);
+  const admin = await isAdmin();
+  let query = supabase.from("remarketing_flows").update(updates).eq("id", flowId);
+  if (!admin) query = query.eq("tenant_id", user.id);
 
+  const { error } = await query;
   if (error) throw new Error(`Failed to update flow: ${error.message}`);
   return { success: true };
 }
@@ -150,12 +146,11 @@ export async function saveRemarketingFlowData(flowId: string, flowData: FlowData
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { error } = await supabase
-    .from("remarketing_flows")
-    .update({ flow_data: flowData })
-    .eq("id", flowId)
-    .eq("tenant_id", user.id);
+  const admin = await isAdmin();
+  let query = supabase.from("remarketing_flows").update({ flow_data: flowData }).eq("id", flowId);
+  if (!admin) query = query.eq("tenant_id", user.id);
 
+  const { error } = await query;
   if (error) throw new Error(`Failed to save flow data: ${error.message}`);
   return { success: true };
 }
@@ -166,12 +161,11 @@ export async function deleteRemarketingFlow(flowId: string, botId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { error } = await supabase
-    .from("remarketing_flows")
-    .delete()
-    .eq("id", flowId)
-    .eq("tenant_id", user.id);
+  const admin = await isAdmin();
+  let query = supabase.from("remarketing_flows").delete().eq("id", flowId);
+  if (!admin) query = query.eq("tenant_id", user.id);
 
+  const { error } = await query;
   if (error) throw new Error(`Failed to delete flow: ${error.message}`);
 
   redirect(`/dashboard/bots/${botId}/remarketing`);
@@ -183,12 +177,11 @@ export async function reorderFlows(flowOrders: { id: string; sort_order: number 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
+  const admin = await isAdmin();
   for (const item of flowOrders) {
-    await supabase
-      .from("remarketing_flows")
-      .update({ sort_order: item.sort_order })
-      .eq("id", item.id)
-      .eq("tenant_id", user.id);
+    let query = supabase.from("remarketing_flows").update({ sort_order: item.sort_order }).eq("id", item.id);
+    if (!admin) query = query.eq("tenant_id", user.id);
+    await query;
   }
 
   return { success: true };

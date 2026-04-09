@@ -1,14 +1,17 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { isAdmin } from "@/lib/actions/admin-actions";
 
 export async function getTransactions(botId: string, page: number = 1, statusFilter: string = "all") {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  // Verify bot belongs to this tenant
-  const { data: bot } = await supabase.from("bots").select("id").eq("id", botId).eq("tenant_id", user.id).single();
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
   if (!bot) throw new Error("Bot not found");
 
   const pageSize = 20;
@@ -36,8 +39,10 @@ export async function getTransactionStats(botId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  // Verify bot belongs to this tenant
-  const { data: bot } = await supabase.from("bots").select("id").eq("id", botId).eq("tenant_id", user.id).single();
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
   if (!bot) throw new Error("Bot not found");
 
   const { data: approved } = await supabase

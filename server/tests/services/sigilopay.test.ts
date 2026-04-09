@@ -40,7 +40,7 @@ describe("SigiloPay", () => {
       products: [
         { id: "prod-1", name: "Curso de Marketing", quantity: 1, price: 97.0 },
       ],
-      callbackUrl: "https://bot.example.com/webhook/payment/bot_1",
+      callbackUrl: "https://bot.example.com/webhook/payment",
     });
 
     expect(result).toEqual({

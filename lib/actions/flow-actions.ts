@@ -101,7 +101,10 @@ export async function getOrCreateNamedFlow(botId: string, flowName: "_visual_flo
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { data: bot } = await supabase.from("bots").select("id, tenant_id").eq("id", botId).eq("tenant_id", user.id).single();
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id, tenant_id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
   if (!bot) throw new Error("Bot not found");
 
   // Check if flow already exists

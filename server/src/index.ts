@@ -1,7 +1,7 @@
 import express from "express";
 import { config } from "./config.js";
 import { handleTelegramWebhook } from "./webhook/telegram.js";
-import { handlePaymentWebhook } from "./webhook/payment.js";
+import { handlePaymentWebhookGlobal, handlePaymentWebhook } from "./webhook/payment.js";
 import { startWorkers } from "./queue.js";
 import { supabase } from "./db.js";
 import { TelegramApi } from "./telegram/api.js";
@@ -44,7 +44,9 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "eaglebot-engine" });
 });
 
-// SigiloPay payment webhook endpoint
+// SigiloPay payment webhook — single global endpoint for the entire platform
+app.post("/webhook/payment", handlePaymentWebhookGlobal);
+// Legacy per-bot endpoint (kept for existing webhooks already registered at SigiloPay)
 app.post("/webhook/payment/:botId", handlePaymentWebhook);
 
 // Telegram webhook endpoint

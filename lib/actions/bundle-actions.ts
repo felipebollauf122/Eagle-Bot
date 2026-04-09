@@ -1,14 +1,17 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { isAdmin } from "@/lib/actions/admin-actions";
 
 export async function getBundles(botId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  // Verify bot ownership
-  const { data: bot } = await supabase.from("bots").select("id").eq("id", botId).eq("tenant_id", user.id).single();
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
   if (!bot) throw new Error("Bot not found");
 
   const { data, error } = await supabase
@@ -26,11 +29,14 @@ export async function createBundle(botId: string, name: string, description: str
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { data: bot } = await supabase.from("bots").select("id").eq("id", botId).eq("tenant_id", user.id).single();
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id, tenant_id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
   if (!bot) throw new Error("Bot not found");
 
   const { data, error } = await supabase.from("product_bundles").insert({
-    tenant_id: user.id,
+    tenant_id: bot.tenant_id,
     bot_id: botId,
     name,
     description,
@@ -47,7 +53,10 @@ export async function updateBundle(bundleId: string, data: { name?: string; desc
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { error } = await supabase.from("product_bundles").update(data).eq("id", bundleId).eq("tenant_id", user.id);
+  const admin = await isAdmin();
+  let query = supabase.from("product_bundles").update(data).eq("id", bundleId);
+  if (!admin) query = query.eq("tenant_id", user.id);
+  const { error } = await query;
   if (error) throw new Error(`Failed to update bundle: ${error.message}`);
   return { success: true };
 }
@@ -57,7 +66,10 @@ export async function deleteBundle(bundleId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { error } = await supabase.from("product_bundles").delete().eq("id", bundleId).eq("tenant_id", user.id);
+  const admin = await isAdmin();
+  let query = supabase.from("product_bundles").delete().eq("id", bundleId);
+  if (!admin) query = query.eq("tenant_id", user.id);
+  const { error } = await query;
   if (error) throw new Error(`Failed to delete bundle: ${error.message}`);
   return { success: true };
 }
@@ -67,8 +79,10 @@ export async function addProductToBundle(bundleId: string, productId: string, so
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  // Verify bundle ownership
-  const { data: bundle } = await supabase.from("product_bundles").select("id").eq("id", bundleId).eq("tenant_id", user.id).single();
+  const admin = await isAdmin();
+  let bundleQuery = supabase.from("product_bundles").select("id").eq("id", bundleId);
+  if (!admin) bundleQuery = bundleQuery.eq("tenant_id", user.id);
+  const { data: bundle } = await bundleQuery.single();
   if (!bundle) throw new Error("Bundle not found");
 
   const { error } = await supabase.from("product_bundle_items").insert({
@@ -86,7 +100,6 @@ export async function removeProductFromBundle(itemId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  // Verify ownership through join
   const { data: item } = await supabase
     .from("product_bundle_items")
     .select("id, product_bundles!inner(tenant_id)")

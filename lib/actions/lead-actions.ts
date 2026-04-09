@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { isAdmin } from "@/lib/actions/admin-actions";
 
 export async function getLeads(botId: string, page: number = 1, search: string = "") {
   const supabase = await createClient();
@@ -10,8 +11,10 @@ export async function getLeads(botId: string, page: number = 1, search: string =
   const pageSize = 20;
   const offset = (page - 1) * pageSize;
 
-  // Verify bot belongs to this tenant
-  const { data: bot } = await supabase.from("bots").select("id").eq("id", botId).eq("tenant_id", user.id).single();
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
   if (!bot) throw new Error("Bot not found");
 
   let query = supabase

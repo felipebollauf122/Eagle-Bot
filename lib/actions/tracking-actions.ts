@@ -1,14 +1,17 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { isAdmin } from "@/lib/actions/admin-actions";
 
 export async function getTrackingEvents(botId: string, page: number = 1) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  // Verify bot belongs to this tenant
-  const { data: bot } = await supabase.from("bots").select("id").eq("id", botId).eq("tenant_id", user.id).single();
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
   if (!bot) throw new Error("Bot not found");
 
   const pageSize = 30;
@@ -30,8 +33,10 @@ export async function getTrackingFunnel(botId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  // Verify bot belongs to this tenant
-  const { data: bot } = await supabase.from("bots").select("id").eq("id", botId).eq("tenant_id", user.id).single();
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
   if (!bot) throw new Error("Bot not found");
 
   const eventTypes = ["page_view", "bot_start", "view_offer", "checkout", "purchase"] as const;
@@ -55,8 +60,11 @@ export async function getTrackingLeads(botId: string, page: number = 1) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { data: bot } = await supabase.from("bots").select("id").eq("id", botId).eq("tenant_id", user.id).single();
-  if (!bot) throw new Error("Bot not found");
+  const admin = await isAdmin();
+  let botQuery2 = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery2 = botQuery2.eq("tenant_id", user.id);
+  const { data: bot2 } = await botQuery2.single();
+  if (!bot2) throw new Error("Bot not found");
 
   const pageSize = 30;
   const offset = (page - 1) * pageSize;
