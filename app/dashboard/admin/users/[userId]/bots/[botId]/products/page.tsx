@@ -34,6 +34,7 @@ export default async function AdminBotProductsPage({
         botId={botId}
         initialProducts={(products ?? []) as Product[]}
         blackEnabled={bot?.black_enabled ?? false}
+        isAdmin
       />
     </div>
   );

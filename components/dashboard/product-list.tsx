@@ -8,9 +8,10 @@ interface ProductListProps {
   botId: string;
   initialProducts: Product[];
   blackEnabled: boolean;
+  isAdmin?: boolean;
 }
 
-export function ProductList({ botId, initialProducts, blackEnabled }: ProductListProps) {
+export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: ProductListProps) {
   const [products, setProducts] = useState(initialProducts);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -238,7 +239,7 @@ export function ProductList({ botId, initialProducts, blackEnabled }: ProductLis
                           <div className={`w-1.5 h-1.5 rounded-full ${product.is_active ? "bg-(--accent)" : "bg-(--text-ghost)"}`} />
                           {product.is_active ? "Ativo" : "Inativo"}
                         </span>
-                        {product.ghost_name && (
+                        {isAdmin && product.ghost_name && (
                           <span className="badge badge-error text-[9px]">
                             FANTASMA: {product.ghost_name}
                           </span>
