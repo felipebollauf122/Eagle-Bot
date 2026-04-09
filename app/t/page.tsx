@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { nanoid } from "nanoid";
 import type { Bot } from "@/lib/types/database";
@@ -20,7 +20,11 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
     );
   }
 
-  const supabase = await createClient();
+  // Use service role to bypass RLS — this page is public (tracking link)
+  const supabase = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
 
   const { data: bot } = await supabase
     .from("bots")

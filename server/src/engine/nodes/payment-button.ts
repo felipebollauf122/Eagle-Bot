@@ -79,8 +79,10 @@ export async function handlePaymentBundleNode(
   }
 
   // Build inline keyboard — one button per product with name + price
+  // Show ghost_name to the client if available, otherwise real name
   const inlineKeyboard = items.map((item) => {
     const product = item.products;
+    const displayName = product.ghost_name || product.name;
     const priceInReais = product.price / 100;
     const priceFormatted = priceInReais.toLocaleString("pt-BR", {
       style: "currency",
@@ -88,7 +90,7 @@ export async function handlePaymentBundleNode(
     });
     return [
       {
-        text: `${product.name} por ${priceFormatted}`,
+        text: `${displayName} por ${priceFormatted}`,
         callback_data: `pay:${product.id}`,
       },
     ];
