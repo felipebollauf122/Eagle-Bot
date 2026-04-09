@@ -100,11 +100,33 @@ export class FlowProcessor {
 
   /**
    * Fetch a named flow (e.g. _visual_flow, _black_flow) for a bot.
+   * Always falls back to a fresh DB query if not found in cache —
+   * critical for _black_flow which must never be silently skipped.
    */
   private async getNamedFlow(botId: string, name: string): Promise<Flow | null> {
     // Try from the active flows cache first
     const flows = await this.getActiveFlows(botId);
-    return flows.find((f) => f.name === name && f.is_active) ?? null;
+    const cached = flows.find((f) => f.name === name && f.is_active);
+    if (cached) return cached;
+
+    // Cache miss — query DB directly (bypasses stale cache)
+    console.log(`[flow] getNamedFlow: "${name}" not in cache for bot ${botId}, querying DB directly`);
+    const { data } = await this.db
+      .from("flows")
+      .select("*")
+      .eq("bot_id", botId)
+      .eq("name", name)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (data) {
+      // Populate cache so subsequent calls don't miss
+      flowByIdCache.set((data as unknown as Flow).id, data);
+      return data as Flow;
+    }
+
+    console.log(`[flow] getNamedFlow: "${name}" not found in DB for bot ${botId}`);
+    return null;
   }
 
   /**
@@ -234,9 +256,9 @@ export class FlowProcessor {
     messageText: string,
     flowName: string,
   ): Promise<void> {
-    console.log(`[flow] handleStartCommand: looking for flow "${flowName}" in bot ${bot.id}`);
+    console.log(`[flow] handleStartCommand: looking for flow "${flowName}" in bot ${bot.id}, lead=${lead.id}`);
 
-    // Find the named flow (cached)
+    // Find the named flow (cache + DB fallback)
     const flow = await this.getNamedFlow(bot.id, flowName);
 
     if (flow) {
@@ -248,13 +270,17 @@ export class FlowProcessor {
       lead.current_flow_id = typedFlow.id;
       lead.active_flow_name = flowName;
 
-      console.log(`[flow] ✓ Executing ${flowName} (${typedFlow.id})${isBlack ? " [BLACK]" : ""}`);
+      console.log(`[flow] ✓ Executing ${flowName} (flowId=${typedFlow.id}, nodes=${typedFlow.flow_data.nodes.length}, edges=${typedFlow.flow_data.edges.length})${isBlack ? " [BLACK]" : ""} for lead ${lead.id}`);
       await this.executeFlow(typedFlow, lead, telegram, chatId, undefined, isBlack);
       return;
     }
 
-    // Named flow not found — fall back to trigger matching
-    console.log(`[flow] Flow "${flowName}" not found, falling back to trigger matching`);
+    // Named flow not found — this is a PROBLEM if flowName is _black_flow
+    if (flowName === "_black_flow") {
+      console.error(`[flow] ✗ CRITICAL: _black_flow was selected but NOT FOUND in DB for bot ${bot.id}! Check that the flow exists, is_active=true, and name="_black_flow". Falling back to trigger matching.`);
+    } else {
+      console.log(`[flow] Flow "${flowName}" not found, falling back to trigger matching`);
+    }
     await this.handleIncomingMessage(bot, lead, telegram, chatId, messageText);
   }
 

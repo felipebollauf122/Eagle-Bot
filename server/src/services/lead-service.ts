@@ -58,7 +58,8 @@ export class LeadService {
       const existingLead = existing as Lead;
 
       // First attribution: if lead has no TID yet, associate tracking data.
-      // Once set, TID and UTMs are never overwritten.
+      // Once set, TID and UTMs are never overwritten — preserves anonymity
+      // and ensures only hot leads from campaigns get tracked.
       if (!existingLead.tid && params.tid) {
         const { data: updated } = await this.db
           .from("leads")

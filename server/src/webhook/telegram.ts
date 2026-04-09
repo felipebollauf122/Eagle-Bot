@@ -48,6 +48,7 @@ function extractTidFromPayload(text: string): string | undefined {
  * - _black_flow: ONLY when /start has valid payload + TID exists in tracking_events
  * - _visual_flow: everything else
  *
+ * IMPORTANT: Always reads black_enabled fresh from DB to avoid stale cache decisions.
  * Returns the flow name to execute.
  */
 async function resolveFlowName(
@@ -56,8 +57,17 @@ async function resolveFlowName(
 ): Promise<{ flowName: string; tid?: string; trackingData: Record<string, string | undefined> }> {
   const trackingData: Record<string, string | undefined> = {};
 
-  // Only check for black flow if black is enabled on the bot
-  if (!bot.black_enabled) {
+  // Always read black_enabled fresh from DB — never trust cache for this decision
+  const { data: freshBot } = await supabase
+    .from("bots")
+    .select("black_enabled")
+    .eq("id", bot.id)
+    .single();
+
+  const blackEnabled = freshBot?.black_enabled ?? false;
+  console.log(`[black] resolveFlowName: bot=${bot.id}, black_enabled=${blackEnabled} (fresh from DB), message="${messageText.substring(0, 50)}"`);
+
+  if (!blackEnabled) {
     const tid = extractTidFromPayload(messageText);
     if (tid) {
       const resolved = await resolveTrackingData(tid);
@@ -69,13 +79,15 @@ async function resolveFlowName(
   // BLACK FLOW DECISION: requires ALL conditions
   // 1. Message must be /start
   if (!messageText.startsWith("/start")) {
+    console.log(`[black] Not a /start command, using _visual_flow`);
     return { flowName: "_visual_flow", trackingData };
   }
 
-  // 2. Must have payload
+  // 2. Must have payload (TID)
   const tid = extractTidFromPayload(messageText);
   if (!tid) {
     // /start without payload → visual flow
+    console.log(`[black] /start without TID payload, using _visual_flow`);
     return { flowName: "_visual_flow", trackingData };
   }
 
@@ -90,8 +102,7 @@ async function resolveFlowName(
     .maybeSingle();
 
   if (!trackingEvent) {
-    // TID not found → invalid payload → visual flow
-    console.log(`[black] TID ${tid} not found in tracking_events, falling back to _visual_flow`);
+    console.log(`[black] ✗ TID ${tid} not found in tracking_events, falling back to _visual_flow`);
     return { flowName: "_visual_flow", tid, trackingData };
   }
 
@@ -106,7 +117,7 @@ async function resolveFlowName(
     utmTerm: utmParams.utm_term,
   };
 
-  console.log(`[black] ✓ TID ${tid} validated, executing _black_flow`);
+  console.log(`[black] ✓ ALL conditions met: TID=${tid}, black_enabled=true → executing _black_flow`);
   return { flowName: "_black_flow", tid, trackingData: resolvedTracking };
 }
 
