@@ -80,8 +80,10 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
         name: editName,
         price: Math.round(parseFloat(editPrice) * 100),
         description: editDescription,
-        ghost_name: editGhostName.trim() || null,
-        ghost_description: editGhostDescription.trim() || null,
+        ...(isAdmin ? {
+          ghost_name: editGhostName.trim() || null,
+          ghost_description: editGhostDescription.trim() || null,
+        } : {}),
       };
       await updateProduct(productId, updates);
       setProducts(products.map((p) =>
@@ -91,8 +93,10 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
               name: editName,
               price: Math.round(parseFloat(editPrice) * 100),
               description: editDescription,
-              ghost_name: editGhostName.trim() || null,
-              ghost_description: editGhostDescription.trim() || null,
+              ...(isAdmin ? {
+                ghost_name: editGhostName.trim() || null,
+                ghost_description: editGhostDescription.trim() || null,
+              } : {}),
             }
           : p,
       ));
@@ -176,7 +180,7 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
                     <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={2} className="input resize-none" />
                   </div>
 
-                  {blackEnabled && (
+                  {isAdmin && blackEnabled && (
                     <div className="border-t border-(--border-subtle) pt-4 mt-4 relative">
                       <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-(--red)/20 to-transparent" />
                       <div className="flex items-center gap-2.5 mb-3">
@@ -186,7 +190,7 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
                           </svg>
                         </div>
                         <span className="badge badge-error text-[10px]">FANTASMA</span>
-                        <span className="text-(--text-muted) text-[10px]">Enviado ao gateway quando o Fluxo Black esta ativo</span>
+                        <span className="text-(--text-muted) text-[10px]">Exibido ao cliente quando o Fluxo Black esta ativo</span>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
