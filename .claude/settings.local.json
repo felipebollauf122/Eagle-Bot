@@ -43,7 +43,22 @@
       "Bash(node -e \"try { require\\('nanoid'\\); console.log\\('ok'\\); } catch\\(e\\) { console.log\\('missing'\\); }\")",
       "Bash(node -e \"import\\('nanoid'\\).then\\(m => console.log\\('ok', typeof m.nanoid\\)\\)\")",
       "Bash(npx vitest:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(docker build:*)",
+      "Bash(docker push:*)",
+      "Bash(curl -s http://127.0.0.1:4040/api/tunnels)",
+      "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\);try{const t=JSON.parse\\(d\\).tunnels;t.forEach\\(x=>console.log\\(x.public_url\\)\\)}catch{console.log\\('ngrok not running'\\)}\")",
+      "Bash(npx tsx:*)",
+      "Bash(curl -s http://localhost:3002/api/bots/f9803269-5877-445b-988c-7521e56b8595/register-webhook)",
+      "Bash(curl -s http://localhost:3002/api/bots/6203c6a5-3706-49be-930f-a5924424ce00/register-webhook)",
+      "Bash(curl -s http://localhost:3002/api/bots/8af858a9-5075-41e1-b39c-83f180703669/register-webhook)",
+      "Bash(curl -s -X POST http://localhost:3002/api/bots/f9803269-5877-445b-988c-7521e56b8595/register-webhook)",
+      "Bash(curl -s -X POST http://localhost:3002/api/bots/6203c6a5-3706-49be-930f-a5924424ce00/register-webhook)",
+      "Bash(curl -s -X POST http://localhost:3002/api/bots/8af858a9-5075-41e1-b39c-83f180703669/register-webhook)",
+      "Bash(taskkill //F //IM \"tsx.exe\")",
+      "Bash(taskkill //F //IM \"node.exe\")",
+      "Bash(timeout 5 tail -f C:/Users/ADMINI~1/AppData/Local/Temp/claude/c--Users-Administrator-eaglebot/b931580e-f089-4346-a1a0-195a8111f408/tasks/b482qxrys.output)",
+      "Bash(timeout 5 tail -f C:/Users/ADMINI~1/AppData/Local/Temp/claude/c--Users-Administrator-eaglebot/b931580e-f089-4346-a1a0-195a8111f408/tasks/beevkah43.output)"
     ]
   }
 }
