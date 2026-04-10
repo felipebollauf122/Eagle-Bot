@@ -44,18 +44,48 @@ function extractTidFromPayload(text: string): string | undefined {
 }
 
 /**
+ * Lookup tracking event by TID with retries to handle race conditions.
+ * The tracking page inserts the event and immediately redirects — the /start
+ * can arrive before the DB commit is visible. Retries up to 3 times with delay.
+ */
+async function findTrackingEvent(tid: string, maxRetries = 3): Promise<Record<string, unknown> | null> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const { data } = await supabase
+      .from("tracking_events")
+      .select("*")
+      .eq("tid", tid)
+      .eq("event_type", "page_view")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (data) {
+      console.log(`[black] TID ${tid} found in tracking_events (attempt ${attempt})`);
+      return data as Record<string, unknown>;
+    }
+
+    if (attempt < maxRetries) {
+      console.log(`[black] TID ${tid} not found yet (attempt ${attempt}/${maxRetries}), retrying in 1s...`);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  return null;
+}
+
+/**
  * Determine which flow to execute on /start:
- * - _black_flow: ONLY when /start has valid payload + TID exists in tracking_events
+ * - _black_flow: when black_enabled + /start + TID validated in tracking_events
  * - _visual_flow: everything else
  *
- * IMPORTANT: Always reads black_enabled fresh from DB to avoid stale cache decisions.
- * Returns the flow name to execute.
+ * IMPORTANT: Always reads black_enabled fresh from DB to avoid stale cache.
+ * Uses retry logic to handle race conditions with tracking event insertion.
  */
 async function resolveFlowName(
   bot: Bot,
   messageText: string,
 ): Promise<{ flowName: string; tid?: string; trackingData: Record<string, string | undefined> }> {
-  const trackingData: Record<string, string | undefined> = {};
+  // Extract TID from payload (if any)
+  const tid = messageText.startsWith("/start") ? extractTidFromPayload(messageText) : undefined;
 
   // Always read black_enabled fresh from DB — never trust cache for this decision
   const { data: freshBot } = await supabase
@@ -65,51 +95,39 @@ async function resolveFlowName(
     .single();
 
   const blackEnabled = freshBot?.black_enabled ?? false;
-  console.log(`[black] resolveFlowName: bot=${bot.id}, black_enabled=${blackEnabled} (fresh from DB), message="${messageText.substring(0, 50)}"`);
+  console.log(`[black] resolveFlowName: bot=${bot.id}, black_enabled=${blackEnabled} (fresh), tid=${tid ?? "none"}, msg="${messageText.substring(0, 50)}"`);
 
   if (!blackEnabled) {
-    const tid = extractTidFromPayload(messageText);
+    let trackingData: Record<string, string | undefined> = {};
     if (tid) {
-      const resolved = await resolveTrackingData(tid);
-      return { flowName: "_visual_flow", tid, trackingData: resolved };
+      trackingData = await resolveTrackingData(tid);
     }
-    return { flowName: "_visual_flow", trackingData };
-  }
-
-  // BLACK FLOW DECISION: requires ALL conditions
-  // 1. Message must be /start
-  if (!messageText.startsWith("/start")) {
-    console.log(`[black] Not a /start command, using _visual_flow`);
-    return { flowName: "_visual_flow", trackingData };
-  }
-
-  // 2. Must have payload (TID)
-  const tid = extractTidFromPayload(messageText);
-  if (!tid) {
-    // /start without payload → visual flow
-    console.log(`[black] /start without TID payload, using _visual_flow`);
-    return { flowName: "_visual_flow", trackingData };
-  }
-
-  // 3. TID must exist in tracking_events (page_view)
-  const { data: trackingEvent } = await supabase
-    .from("tracking_events")
-    .select("*")
-    .eq("tid", tid)
-    .eq("event_type", "page_view")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!trackingEvent) {
-    console.log(`[black] ✗ TID ${tid} not found in tracking_events, falling back to _visual_flow`);
     return { flowName: "_visual_flow", tid, trackingData };
   }
 
-  // ALL conditions met → black flow
+  // BLACK FLOW DECISION
+  if (!messageText.startsWith("/start")) {
+    console.log(`[black] Not a /start command, using _visual_flow`);
+    return { flowName: "_visual_flow", trackingData: {} };
+  }
+
+  if (!tid) {
+    console.log(`[black] /start without TID payload, using _visual_flow`);
+    return { flowName: "_visual_flow", trackingData: {} };
+  }
+
+  // Validate TID in tracking_events — with retries to handle race condition
+  const trackingEvent = await findTrackingEvent(tid);
+
+  if (!trackingEvent) {
+    console.log(`[black] ✗ TID ${tid} NOT FOUND after all retries, falling back to _visual_flow`);
+    return { flowName: "_visual_flow", tid, trackingData: {} };
+  }
+
+  // TID validated → black flow
   const utmParams = (trackingEvent.utm_params ?? {}) as Record<string, string>;
   const resolvedTracking: Record<string, string | undefined> = {
-    fbclid: trackingEvent.fbclid ?? undefined,
+    fbclid: (trackingEvent.fbclid as string) ?? undefined,
     utmSource: utmParams.utm_source,
     utmMedium: utmParams.utm_medium,
     utmCampaign: utmParams.utm_campaign,
@@ -117,7 +135,7 @@ async function resolveFlowName(
     utmTerm: utmParams.utm_term,
   };
 
-  console.log(`[black] ✓ ALL conditions met: TID=${tid}, black_enabled=true → executing _black_flow`);
+  console.log(`[black] ✓ TID ${tid} VALIDATED → executing _black_flow`);
   return { flowName: "_black_flow", tid, trackingData: resolvedTracking };
 }
 

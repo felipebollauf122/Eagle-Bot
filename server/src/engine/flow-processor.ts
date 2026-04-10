@@ -405,7 +405,6 @@ export class FlowProcessor {
       const paymentNodeId = String(lead.state.pending_payment_node_id ?? "");
 
       if (!productId || !paymentNodeId || !lead.current_flow_id) return;
-      if (!lead.state.awaiting_product_selection) return;
 
       const typedFlow = await this.getFlowById(lead.current_flow_id);
       if (!typedFlow) return;

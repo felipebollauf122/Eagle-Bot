@@ -186,6 +186,13 @@ export async function handleProductPaymentCallback(
   // hitting SigiloPay's 20-webhook limit. The bot is resolved from the
   // transaction record when the callback arrives.
   const callbackUrl = `${baseWebhookUrl}/webhook/payment`;
+
+  // Instant feedback — send before generating pix (fire-and-forget)
+  const loadingMsg = await ctx.telegram.sendMessage({
+    chatId: ctx.chatId,
+    text: "⏳ Gerando seu Pix, aguarde...",
+  });
+
   let payment;
   try {
     payment = await sigiloPay.createPixPayment({
@@ -214,6 +221,10 @@ export async function handleProductPaymentCallback(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error(`[payment] SigiloPay failed for product ${productId}, lead ${ctx.lead.id}:`, errorMsg);
+    // Delete loading message on error
+    if (loadingMsg) {
+      ctx.telegram.deleteMessage(ctx.chatId, loadingMsg.message_id).catch(() => {});
+    }
     await ctx.telegram.sendMessage({
       chatId: ctx.chatId,
       text: `⚠️ Erro no pagamento: ${errorMsg}`,
@@ -315,6 +326,11 @@ export async function handleProductPaymentCallback(
   // Generate QR code URL from pix code if SigiloPay didn't provide one
   const qrCodeUrl = payment.pixImage
     || `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(payment.pixCode)}`;
+
+  // Delete loading message now that pix is ready
+  if (loadingMsg) {
+    ctx.telegram.deleteMessage(ctx.chatId, loadingMsg.message_id).catch(() => {});
+  }
 
   // Send payment details with QR Code button
   const paymentMsg = await ctx.telegram.sendMessage({
