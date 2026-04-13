@@ -66,17 +66,44 @@ interface TrackEventParams {
   eventData?: Record<string, unknown>;
 }
 
-/** Build fbc parameter from fbclid */
-function buildFbc(fbclid: string | null): string {
+/** Build fbc parameter from fbclid using the REAL click timestamp */
+function buildFbc(fbclid: string | null, clickTimeMs: number | null): string {
   if (!fbclid) return "";
-  return `fb.1.${Date.now()}.${fbclid}`;
+  const ts = clickTimeMs && clickTimeMs > 0 ? clickTimeMs : Date.now();
+  return `fb.1.${ts}.${fbclid}`;
 }
 
-/** Build user_data for Facebook from lead info */
-function buildFbUserData(lead: LeadInfo) {
-  const fbc = buildFbc(lead.fbclid);
+/**
+ * Look up the _fbp and real click timestamp saved on the page_view event.
+ * These are persisted when the user lands on /t — essential for high-quality
+ * matching on the Facebook CAPI Purchase event.
+ */
+async function loadClickContext(
+  db: SupabaseClient,
+  tid: string | null,
+): Promise<{ fbp?: string; clickTime?: number }> {
+  if (!tid) return {};
+  const { data } = await db
+    .from("tracking_events")
+    .select("event_data")
+    .eq("tid", tid)
+    .eq("event_type", "page_view")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const ed = (data?.event_data ?? {}) as Record<string, unknown>;
+  return {
+    fbp: typeof ed.fbp === "string" ? ed.fbp : undefined,
+    clickTime: typeof ed.click_time === "number" ? ed.click_time : undefined,
+  };
+}
+
+/** Build user_data for Facebook from lead info + click context */
+function buildFbUserData(lead: LeadInfo, ctx: { fbp?: string; clickTime?: number }) {
+  const fbc = buildFbc(lead.fbclid, ctx.clickTime ?? null);
   return {
     fbc: fbc || undefined,
+    fbp: ctx.fbp,
     externalId: lead.id,
     firstName: lead.firstName,
     email: lead.email || undefined,
@@ -105,6 +132,10 @@ export class TrackingService {
   /**
    * Purchase — fires when SigiloPay confirms payment (status OK).
    * Sends: DB event + Facebook Purchase + Utmify paid order.
+   *
+   * This is the ONLY Facebook CAPI event fired by the platform — all user
+   * data (email, phone, CPF, fbc with real click timestamp, fbp) is attached
+   * here to maximize Event Match Quality.
    */
   async trackPurchase(params: TrackPurchaseParams): Promise<void> {
     const eventId = `purchase_${params.transactionId}`;
@@ -128,11 +159,14 @@ export class TrackingService {
       },
     });
 
-    // Facebook CAPI — Purchase event
+    // Load fbp + real click timestamp from the original page_view
+    const clickCtx = await loadClickContext(this.db, lead.tid);
+
+    // Facebook CAPI — Purchase event (with full user data for max EMQ)
     const fbSent = await this.facebookCapi.sendPurchaseEvent({
       eventTime,
       eventId,
-      userData: buildFbUserData(lead),
+      userData: buildFbUserData(lead, clickCtx),
       value: amountInCurrency,
       currency: params.currency,
       contentIds: params.productId ? [params.productId] : undefined,
@@ -184,15 +218,15 @@ export class TrackingService {
 
   /**
    * InitiateCheckout — fires when Pix code is generated.
-   * Sends: DB event + Facebook InitiateCheckout.
+   *
+   * Facebook CAPI is DISABLED for this event by design. Sending low-EMQ
+   * intermediate events (no email/phone/CPF) was polluting the pixel's
+   * quality score and degrading delivery. Only Purchase is sent to FB.
+   * Utmify still receives the waiting_payment order elsewhere.
    */
   async trackCheckout(params: TrackCheckoutParams): Promise<void> {
-    const eventId = `checkout_${params.leadId}_${Date.now()}`;
-    const eventTime = Math.floor(Date.now() / 1000);
     const { lead } = params;
-    const amountInCurrency = params.amount / 100;
-
-    const dbEventId = await this.saveEvent({
+    await this.saveEvent({
       tenantId: params.tenantId,
       leadId: params.leadId,
       botId: params.botId,
@@ -206,35 +240,16 @@ export class TrackingService {
         product_id: params.productId,
       },
     });
-
-    const fbSent = await this.facebookCapi.sendInitiateCheckoutEvent({
-      eventTime,
-      eventId,
-      userData: buildFbUserData(lead),
-      value: amountInCurrency,
-      currency: params.currency,
-      contentIds: params.productId ? [params.productId] : undefined,
-      contentName: params.productName,
-    });
-
-    if (dbEventId) {
-      await this.db
-        .from("tracking_events")
-        .update({ sent_to_facebook: fbSent })
-        .eq("id", dbEventId);
-    }
   }
 
   /**
    * Lead — fires when a new lead enters the bot via tracking link.
-   * Sends: DB event + Facebook Lead.
+   * Facebook CAPI disabled: bot_start has no contact data and was lowering EMQ.
+   * Only the DB row is persisted so dashboards keep their counters.
    */
   async trackLead(params: TrackLeadParams): Promise<void> {
-    const eventId = `lead_${params.leadId}`;
-    const eventTime = Math.floor(Date.now() / 1000);
     const { lead } = params;
-
-    const dbEventId = await this.saveEvent({
+    await this.saveEvent({
       tenantId: params.tenantId,
       leadId: params.leadId,
       botId: params.botId,
@@ -243,31 +258,15 @@ export class TrackingService {
       tid: lead.tid,
       utmParams: buildUtmRecord(lead),
     });
-
-    const fbSent = await this.facebookCapi.sendLeadEvent({
-      eventTime,
-      eventId,
-      userData: buildFbUserData(lead),
-    });
-
-    if (dbEventId) {
-      await this.db
-        .from("tracking_events")
-        .update({ sent_to_facebook: fbSent })
-        .eq("id", dbEventId);
-    }
   }
 
   /**
    * ViewContent — fires when a lead sees the offer (view_offer event).
-   * Sends: DB event + Facebook ViewContent.
+   * Facebook CAPI disabled — same reason as trackLead/trackCheckout.
    */
   async trackViewOffer(params: TrackViewOfferParams): Promise<void> {
-    const eventId = `view_offer_${params.leadId}_${Date.now()}`;
-    const eventTime = Math.floor(Date.now() / 1000);
     const { lead } = params;
-
-    const dbEventId = await this.saveEvent({
+    await this.saveEvent({
       tenantId: params.tenantId,
       leadId: params.leadId,
       botId: params.botId,
@@ -276,20 +275,6 @@ export class TrackingService {
       tid: lead.tid,
       utmParams: buildUtmRecord(lead),
     });
-
-    const fbSent = await this.facebookCapi.sendViewContentEvent({
-      eventTime,
-      eventId,
-      userData: buildFbUserData(lead),
-      contentName: params.contentName,
-    });
-
-    if (dbEventId) {
-      await this.db
-        .from("tracking_events")
-        .update({ sent_to_facebook: fbSent })
-        .eq("id", dbEventId);
-    }
   }
 
   async trackCustomEvent(params: TrackEventParams): Promise<void> {
