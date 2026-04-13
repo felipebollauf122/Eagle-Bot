@@ -303,7 +303,7 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
           </div>
           <div>
             <label className="input-label">Conversions API Token</label>
-            <input type="password" value={accessToken} onChange={(e) => setAccessToken(e.target.value)} placeholder="EAAx..." className="input" />
+            <input type="text" value={accessToken} onChange={(e) => setAccessToken(e.target.value)} placeholder="EAAx..." className="input" />
           </div>
         </div>
       </div>
@@ -314,7 +314,7 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
         <SectionHeader sKey="utmify" />
         <div>
           <label className="input-label">API Key</label>
-          <input type="password" value={utmifyKey} onChange={(e) => setUtmifyKey(e.target.value)} placeholder="utm_..." className="input" />
+          <input type="text" value={utmifyKey} onChange={(e) => setUtmifyKey(e.target.value)} placeholder="utm_..." className="input" />
         </div>
       </div>
 
@@ -329,7 +329,7 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
           </div>
           <div>
             <label className="input-label">Chave Secreta</label>
-            <input type="password" value={sigiloSecretKey} onChange={(e) => setSigiloSecretKey(e.target.value)} placeholder="sec_..." className="input" />
+            <input type="text" value={sigiloSecretKey} onChange={(e) => setSigiloSecretKey(e.target.value)} placeholder="sec_..." className="input" />
           </div>
         </div>
       </div>
