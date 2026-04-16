@@ -83,6 +83,7 @@ async function findTrackingEvent(tid: string, maxRetries = 3): Promise<Record<st
 async function resolveFlowName(
   bot: Bot,
   messageText: string,
+  telegramUserId: number,
 ): Promise<{ flowName: string; tid?: string; trackingData: Record<string, string | undefined> }> {
   // Extract TID from payload (if any)
   const tid = messageText.startsWith("/start") ? extractTidFromPayload(messageText) : undefined;
@@ -98,6 +99,23 @@ async function resolveFlowName(
   console.log(`[black] resolveFlowName: bot=${bot.id}, black_enabled=${blackEnabled} (fresh), tid=${tid ?? "none"}, msg="${messageText.substring(0, 50)}"`);
 
   if (!blackEnabled) {
+    let trackingData: Record<string, string | undefined> = {};
+    if (tid) {
+      trackingData = await resolveTrackingData(tid);
+    }
+    return { flowName: "_visual_flow", tid, trackingData };
+  }
+
+  // Check blacklist — blacklisted users always get the visual (white) flow
+  const { data: blacklisted } = await supabase
+    .from("blacklist_users")
+    .select("id")
+    .eq("bot_id", bot.id)
+    .eq("telegram_user_id", telegramUserId)
+    .maybeSingle();
+
+  if (blacklisted) {
+    console.log(`[black] User ${telegramUserId} is BLACKLISTED → forcing _visual_flow`);
     let trackingData: Record<string, string | undefined> = {};
     if (tid) {
       trackingData = await resolveTrackingData(tid);
@@ -222,7 +240,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       let trackingData: Record<string, string | undefined> = {};
 
       if (isStartCommand) {
-        const resolved = await resolveFlowName(typedBot, text);
+        const resolved = await resolveFlowName(typedBot, text, telegramUserId);
         flowName = resolved.flowName;
         tid = resolved.tid;
         trackingData = resolved.trackingData;

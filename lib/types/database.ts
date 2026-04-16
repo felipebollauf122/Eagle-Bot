@@ -171,6 +171,16 @@ export interface RemarketingFlow {
   updated_at: string;
 }
 
+export interface BlacklistUser {
+  id: string;
+  bot_id: string;
+  telegram_user_id: number;
+  username: string | null;
+  first_name: string | null;
+  note: string | null;
+  created_at: string;
+}
+
 export interface TrackingEvent {
   id: string;
   tenant_id: string;

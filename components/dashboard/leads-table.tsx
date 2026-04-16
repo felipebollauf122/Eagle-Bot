@@ -74,6 +74,7 @@ export function LeadsTable({ botId, initialLeads, total, currentPage, pageSize }
                 <tr className="border-b border-(--border-subtle)">
                   <th className="table-header">Nome</th>
                   <th className="table-header">Username</th>
+                  <th className="table-header">Telegram ID</th>
                   <th className="table-header">Fonte</th>
                   <th className="table-header">TID</th>
                   <th className="table-header">Criado em</th>
@@ -84,6 +85,7 @@ export function LeadsTable({ botId, initialLeads, total, currentPage, pageSize }
                   <tr key={lead.id} className="hover:bg-white/2 transition-colors group">
                     <td className="table-cell text-foreground font-medium">{lead.first_name}</td>
                     <td className="table-cell text-(--text-secondary)">{lead.username ? `@${lead.username}` : "—"}</td>
+                    <td className="table-cell text-(--text-muted) text-xs font-mono stat-value">{lead.telegram_user_id}</td>
                     <td className="table-cell">
                       {lead.utm_source ? (
                         <span className="badge badge-purple">{lead.utm_source}</span>
