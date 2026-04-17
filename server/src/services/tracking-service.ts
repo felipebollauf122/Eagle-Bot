@@ -73,15 +73,23 @@ function buildFbc(fbclid: string | null, clickTimeMs: number | null): string {
   return `fb.1.${ts}.${fbclid}`;
 }
 
+interface ClickContext {
+  fbp?: string;
+  clickTime?: number;
+  clientIp?: string;
+  userAgent?: string;
+  sourceUrl?: string;
+}
+
 /**
- * Look up the _fbp and real click timestamp saved on the page_view event.
- * These are persisted when the user lands on /t — essential for high-quality
- * matching on the Facebook CAPI Purchase event.
+ * Look up the _fbp, real click timestamp, client IP, User-Agent and source URL
+ * saved on the page_view event. These are persisted when the user lands on /t —
+ * essential for high-quality matching on the Facebook CAPI Purchase event.
  */
 async function loadClickContext(
   db: SupabaseClient,
   tid: string | null,
-): Promise<{ fbp?: string; clickTime?: number }> {
+): Promise<ClickContext> {
   if (!tid) return {};
   const { data } = await db
     .from("tracking_events")
@@ -95,11 +103,14 @@ async function loadClickContext(
   return {
     fbp: typeof ed.fbp === "string" ? ed.fbp : undefined,
     clickTime: typeof ed.click_time === "number" ? ed.click_time : undefined,
+    clientIp: typeof ed.client_ip === "string" ? ed.client_ip : undefined,
+    userAgent: typeof ed.user_agent === "string" ? ed.user_agent : undefined,
+    sourceUrl: typeof ed.source_url === "string" ? ed.source_url : undefined,
   };
 }
 
 /** Build user_data for Facebook from lead info + click context */
-function buildFbUserData(lead: LeadInfo, ctx: { fbp?: string; clickTime?: number }) {
+function buildFbUserData(lead: LeadInfo, ctx: ClickContext) {
   const fbc = buildFbc(lead.fbclid, ctx.clickTime ?? null);
   return {
     fbc: fbc || undefined,
@@ -108,6 +119,8 @@ function buildFbUserData(lead: LeadInfo, ctx: { fbp?: string; clickTime?: number
     firstName: lead.firstName,
     email: lead.email || undefined,
     phone: lead.phone || undefined,
+    clientIp: ctx.clientIp,
+    clientUserAgent: ctx.userAgent,
   };
 }
 
@@ -159,8 +172,13 @@ export class TrackingService {
       },
     });
 
-    // Load fbp + real click timestamp from the original page_view
+    // Load fbp + real click timestamp + IP/UA/sourceUrl from the original page_view
     const clickCtx = await loadClickContext(this.db, lead.tid);
+
+    // Build structured contents array — Meta prefers this over flat content_ids
+    const contents = params.productId
+      ? [{ id: params.productId, quantity: 1, item_price: amountInCurrency }]
+      : undefined;
 
     // Facebook CAPI — Purchase event (with full user data for max EMQ)
     const fbSent = await this.facebookCapi.sendPurchaseEvent({
@@ -171,6 +189,10 @@ export class TrackingService {
       currency: params.currency,
       contentIds: params.productId ? [params.productId] : undefined,
       contentName: params.productName,
+      contents,
+      numItems: 1,
+      sourceUrl: clickCtx.sourceUrl,
+      orderId: params.transactionId,
     });
 
     // Utmify — paid order

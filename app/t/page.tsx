@@ -1,5 +1,5 @@
 import { createClient as createServiceClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { nanoid } from "nanoid";
 import type { Bot } from "@/lib/types/database";
 
@@ -10,6 +10,20 @@ interface TrackingPageProps {
 function generateFbp(): string {
   const rand = Math.floor(Math.random() * 1e10);
   return `fb.1.${Date.now()}.${rand}`;
+}
+
+/** Extract client IP from proxy headers (Cloudflare, Vercel, etc), prefer IPv4 */
+function extractClientIp(hdrs: Headers): string | null {
+  const candidates = [
+    hdrs.get("cf-connecting-ip"),
+    hdrs.get("x-real-ip"),
+    hdrs.get("x-forwarded-for")?.split(",")[0]?.trim(),
+    hdrs.get("x-client-ip"),
+  ];
+  for (const ip of candidates) {
+    if (ip && ip.length > 0) return ip;
+  }
+  return null;
 }
 
 export default async function TrackingPage({ searchParams }: TrackingPageProps) {
@@ -59,6 +73,20 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
   const existingFbp = cookieStore.get("_fbp")?.value;
   const fbp = existingFbp || generateFbp();
 
+  // Capture client IP and User-Agent for Facebook CAPI matching
+  const hdrs = await headers();
+  const clientIp = extractClientIp(hdrs);
+  const userAgent = hdrs.get("user-agent") ?? null;
+
+  // Build source URL (landing page URL) for event_source_url — improves attribution
+  const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "";
+  const proto = hdrs.get("x-forwarded-proto") ?? "https";
+  const queryString = new URLSearchParams();
+  for (const [k, v] of Object.entries(search)) {
+    if (typeof v === "string" && v.length > 0) queryString.set(k, v);
+  }
+  const sourceUrl = host ? `${proto}://${host}/t${queryString.toString() ? "?" + queryString.toString() : ""}` : null;
+
   // Real click timestamp — this is THE moment the user clicked the ad
   const clickTime = Date.now();
 
@@ -81,6 +109,9 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
     event_data: {
       fbp,
       click_time: clickTime,
+      client_ip: clientIp,
+      user_agent: userAgent,
+      source_url: sourceUrl,
     },
     sent_to_facebook: false,
     sent_to_utmify: false,

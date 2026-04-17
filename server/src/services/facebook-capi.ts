@@ -8,6 +8,14 @@ interface UserData {
   email?: string;
   phone?: string;
   country?: string;
+  clientIp?: string;
+  clientUserAgent?: string;
+}
+
+interface PurchaseContent {
+  id: string;
+  quantity: number;
+  item_price: number; // in the currency's main unit
 }
 
 interface PurchaseEventParams {
@@ -18,6 +26,10 @@ interface PurchaseEventParams {
   eventId: string;
   contentIds?: string[];
   contentName?: string;
+  contents?: PurchaseContent[];
+  numItems?: number;
+  sourceUrl?: string;
+  orderId?: string;
 }
 
 interface CheckoutEventParams {
@@ -90,11 +102,48 @@ export class FacebookCapi {
     }
     ud.country = this.hash(params.country ?? "br");
 
+    // IP and User-Agent are NOT hashed — sent as-is per Meta spec
+    if (params.clientIp && params.clientIp.length > 0) {
+      ud.client_ip_address = params.clientIp;
+    }
+    if (params.clientUserAgent && params.clientUserAgent.length > 0) {
+      ud.client_user_agent = params.clientUserAgent;
+    }
+
     return ud;
   }
 
   async sendPurchaseEvent(params: PurchaseEventParams): Promise<boolean> {
     if (!this.isConfigured()) return false;
+
+    // Guard against invalid value — Meta penalizes events with 0/NaN/negative value
+    const value = Number(params.value);
+    if (!Number.isFinite(value) || value <= 0) {
+      console.error(`[facebook-capi] Refusing to send Purchase with invalid value=${params.value}`);
+      return false;
+    }
+
+    const customData: Record<string, unknown> = {
+      value,
+      currency: params.currency.toUpperCase(),
+      content_type: "product",
+    };
+
+    if (params.contentIds?.length) {
+      customData.content_ids = params.contentIds;
+    }
+    if (params.contentName) {
+      customData.content_name = params.contentName;
+    }
+    if (params.contents?.length) {
+      customData.contents = params.contents;
+      customData.num_items = params.numItems ?? params.contents.reduce((sum, c) => sum + c.quantity, 0);
+    } else if (params.numItems) {
+      customData.num_items = params.numItems;
+    }
+    if (params.orderId) {
+      customData.order_id = params.orderId;
+    }
 
     const eventData: Record<string, unknown> = {
       event_name: "Purchase",
@@ -102,18 +151,11 @@ export class FacebookCapi {
       event_id: params.eventId,
       action_source: "website",
       user_data: this.buildUserData(params.userData),
-      custom_data: {
-        value: params.value,
-        currency: params.currency.toUpperCase(),
-        content_type: "product",
-      },
+      custom_data: customData,
     };
 
-    if (params.contentIds?.length) {
-      (eventData.custom_data as Record<string, unknown>).content_ids = params.contentIds;
-    }
-    if (params.contentName) {
-      (eventData.custom_data as Record<string, unknown>).content_name = params.contentName;
+    if (params.sourceUrl) {
+      eventData.event_source_url = params.sourceUrl;
     }
 
     return this.sendEvent(eventData);
@@ -193,30 +235,57 @@ export class FacebookCapi {
     return this.sendEvent(eventData);
   }
 
-  private async sendEvent(eventData: Record<string, unknown>): Promise<boolean> {
-    try {
-      console.log(`[facebook-capi] Sending ${eventData.event_name} event...`);
+  private async sendEvent(eventData: Record<string, unknown>, maxRetries = 3): Promise<boolean> {
+    const eventName = String(eventData.event_name);
 
-      const response = await fetch(this.apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          data: [eventData],
-          access_token: this.accessToken,
-        }),
-      });
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt === 1) {
+          console.log(`[facebook-capi] Sending ${eventName} event (event_id=${eventData.event_id})...`);
+        } else {
+          console.log(`[facebook-capi] Retrying ${eventName} (attempt ${attempt}/${maxRetries})...`);
+        }
 
-      const result = await response.json();
-      if (!response.ok) {
-        console.error(`[facebook-capi] Error (${response.status}):`, JSON.stringify(result));
+        const response = await fetch(this.apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            data: [eventData],
+            access_token: this.accessToken,
+          }),
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          console.log(`[facebook-capi] ✓ ${eventName} sent (event_id=${eventData.event_id}, events_received=${result.events_received}, fbtrace_id=${result.fbtrace_id ?? "—"})`);
+          return true;
+        }
+
+        // Retry on server errors (5xx) and rate limits (429), but NOT on 4xx client errors (bad payload)
+        const shouldRetry = response.status >= 500 || response.status === 429;
+        if (shouldRetry && attempt < maxRetries) {
+          const delayMs = Math.min(Math.pow(2, attempt) * 500, 5000);
+          console.warn(`[facebook-capi] ${eventName} failed with ${response.status}, retrying in ${delayMs}ms. Response: ${JSON.stringify(result)}`);
+          await new Promise((r) => setTimeout(r, delayMs));
+          continue;
+        }
+
+        console.error(`[facebook-capi] ✗ ${eventName} failed (${response.status}, no retry):`, JSON.stringify(result));
+        return false;
+      } catch (error) {
+        const isLast = attempt >= maxRetries;
+        if (!isLast) {
+          const delayMs = Math.min(Math.pow(2, attempt) * 500, 5000);
+          console.warn(`[facebook-capi] ${eventName} network error (attempt ${attempt}), retrying in ${delayMs}ms:`, error);
+          await new Promise((r) => setTimeout(r, delayMs));
+          continue;
+        }
+        console.error(`[facebook-capi] ✗ ${eventName} request failed after ${maxRetries} attempts:`, error);
         return false;
       }
-
-      console.log(`[facebook-capi] ✓ ${eventData.event_name} sent, events_received: ${result.events_received}`);
-      return true;
-    } catch (error) {
-      console.error("[facebook-capi] Request failed:", error);
-      return false;
     }
+
+    return false;
   }
 }
