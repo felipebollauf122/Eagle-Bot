@@ -15,6 +15,7 @@ interface BotSettings {
   prelander_description: string;
   prelander_image_url: string;
   prelander_cta_text: string;
+  redirect_display_name: string;
 }
 
 export async function saveBotSettings(botId: string, settings: BotSettings) {
@@ -42,6 +43,7 @@ export async function saveBotSettings(botId: string, settings: BotSettings) {
       prelander_description: settings.prelander_description || null,
       prelander_image_url: settings.prelander_image_url || null,
       prelander_cta_text: settings.prelander_cta_text || null,
+      redirect_display_name: settings.redirect_display_name || null,
     })
     .eq("id", botId);
 

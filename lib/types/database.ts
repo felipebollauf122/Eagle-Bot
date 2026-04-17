@@ -56,6 +56,7 @@ export interface Bot {
   prelander_image_url: string | null;
   prelander_cta_text: string | null;
   avatar_url: string | null;
+  redirect_display_name: string | null;
   black_enabled: boolean;
   created_at: string;
 }

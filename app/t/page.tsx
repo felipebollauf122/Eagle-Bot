@@ -12,7 +12,6 @@ function generateFbp(): string {
   return `fb.1.${Date.now()}.${rand}`;
 }
 
-/** Extract client IP from proxy headers (Cloudflare, Vercel, etc), prefer IPv4 */
 function extractClientIp(hdrs: Headers): string | null {
   const candidates = [
     hdrs.get("cf-connecting-ip"),
@@ -28,15 +27,10 @@ function extractClientIp(hdrs: Headers): string | null {
 
 export default async function TrackingPage({ searchParams }: TrackingPageProps) {
   const search = await searchParams;
-
   const botId = String(search.bot ?? "");
 
   if (!botId) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-(--text-muted) text-sm">Link invalido</p>
-      </div>
-    );
+    return <InvalidLink />;
   }
 
   const supabase = createServiceClient(
@@ -52,11 +46,7 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
     .single();
 
   if (!bot) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-(--text-muted) text-sm">Link invalido</p>
-      </div>
-    );
+    return <InvalidLink />;
   }
 
   const typedBot = bot as Bot;
@@ -68,17 +58,14 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
   const utmContent = String(search.utm_content ?? "");
   const utmTerm = String(search.utm_term ?? "");
 
-  // Capture or generate _fbp cookie (Facebook browser ID)
   const cookieStore = await cookies();
   const existingFbp = cookieStore.get("_fbp")?.value;
   const fbp = existingFbp || generateFbp();
 
-  // Capture client IP and User-Agent for Facebook CAPI matching
   const hdrs = await headers();
   const clientIp = extractClientIp(hdrs);
   const userAgent = hdrs.get("user-agent") ?? null;
 
-  // Build source URL (landing page URL) for event_source_url — improves attribution
   const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "";
   const proto = hdrs.get("x-forwarded-proto") ?? "https";
   const queryString = new URLSearchParams();
@@ -87,9 +74,7 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
   }
   const sourceUrl = host ? `${proto}://${host}/t${queryString.toString() ? "?" + queryString.toString() : ""}` : null;
 
-  // Real click timestamp — this is THE moment the user clicked the ad
   const clickTime = Date.now();
-
   const tid = `tid_${nanoid(16)}`;
 
   await supabase.from("tracking_events").insert({
@@ -118,72 +103,289 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
   });
 
   const telegramDeepLink = `https://t.me/${typedBot.bot_username}?start=${tid}`;
-  const botHandle = `@${typedBot.bot_username}`;
+  const displayName = typedBot.redirect_display_name?.trim() || `@${typedBot.bot_username}`;
+  const avatar = typedBot.avatar_url ?? null;
 
   return (
-    <>
-      <meta httpEquiv="refresh" content={`1;url=${telegramDeepLink}`} />
-      <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center px-4">
-        <div className="absolute inset-0 bg-gradient-to-b from-(--bg-root) via-(--bg-surface) to-(--bg-root)" />
-        <div className="grid-lines absolute inset-0 opacity-50" />
-        <div className="dot-pattern absolute inset-0 opacity-20" />
+    <div
+      style={{
+        minHeight: "100vh",
+        position: "relative",
+        overflow: "hidden",
+        background: "radial-gradient(1200px 800px at 20% 0%, #0b2a5c 0%, transparent 55%), radial-gradient(900px 700px at 90% 100%, #0a1f4a 0%, transparent 50%), linear-gradient(180deg, #030815 0%, #050a1c 50%, #020614 100%)",
+        color: "#e8ecff",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
+        fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial',
+      }}
+    >
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage:
+            "linear-gradient(rgba(96,165,250,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(96,165,250,0.06) 1px, transparent 1px)",
+          backgroundSize: "48px 48px",
+          maskImage: "radial-gradient(ellipse at center, black 40%, transparent 80%)",
+          WebkitMaskImage: "radial-gradient(ellipse at center, black 40%, transparent 80%)",
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: "-10%",
+          left: "30%",
+          width: "520px",
+          height: "520px",
+          background: "#3b82f6",
+          borderRadius: "9999px",
+          filter: "blur(140px)",
+          opacity: 0.18,
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          bottom: "-10%",
+          right: "10%",
+          width: "420px",
+          height: "420px",
+          background: "#60a5fa",
+          borderRadius: "9999px",
+          filter: "blur(120px)",
+          opacity: 0.14,
+          pointerEvents: "none",
+        }}
+      />
 
-        <div className="absolute top-[20%] left-[30%] w-[500px] h-[500px] bg-(--accent) rounded-full opacity-[0.05] blur-[140px]" style={{ animation: "float 10s ease-in-out infinite" }} />
-        <div className="absolute bottom-[10%] right-[20%] w-[400px] h-[400px] bg-(--cyan) rounded-full opacity-[0.04] blur-[120px]" style={{ animation: "float 12s ease-in-out infinite 3s" }} />
-
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-(--accent)/30 to-transparent" />
-
-        <div className="relative z-10 max-w-md w-full text-center animate-up">
-          <div className="mb-10 flex justify-center">
-            <div className="relative">
-              <div className="w-20 h-20 rounded-full border-2 border-(--accent)/20 border-t-(--accent) animate-spin" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="var(--accent)">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
-                </svg>
-              </div>
-            </div>
-          </div>
-
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-3 tracking-tight">
-            Redirecionando...
-          </h1>
-
-          <p className="text-(--text-secondary) text-base mb-2">
-            Você está sendo redirecionado para
-          </p>
-          <p className="text-(--accent) text-lg font-semibold mb-10">
-            {botHandle}
-          </p>
-
-          <a
-            href={telegramDeepLink}
-            className="inline-flex items-center gap-2 px-6 py-3 text-(--text-muted) text-sm font-medium rounded-xl border border-(--border-default) hover:border-(--accent)/50 hover:text-(--accent) transition-all"
-          >
-            <span>Abrir manualmente se não for redirecionado</span>
-          </a>
-
-          <p className="text-(--text-ghost) text-xs mt-14 tracking-wider uppercase font-medium">
-            Powered by EagleBot
-          </p>
-        </div>
-
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function(){
-                try {
-                  var existing = document.cookie.split('; ').find(function(c){ return c.indexOf('_fbp=') === 0; });
-                  if (!existing) {
-                    document.cookie = '_fbp=${fbp}; path=/; max-age=7776000; SameSite=Lax';
-                  }
-                } catch(e) {}
-                setTimeout(function(){ window.location.href = ${JSON.stringify(telegramDeepLink)}; }, 800);
-              })();
-            `,
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          maxWidth: "420px",
+          borderRadius: "28px",
+          padding: "40px 32px 32px",
+          background:
+            "linear-gradient(180deg, rgba(20,30,60,0.85) 0%, rgba(10,18,40,0.9) 100%)",
+          border: "1px solid rgba(96,165,250,0.18)",
+          boxShadow:
+            "0 0 0 1px rgba(59,130,246,0.08) inset, 0 30px 80px -20px rgba(37,99,235,0.45), 0 0 120px -30px rgba(59,130,246,0.5)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          textAlign: "center",
+        }}
+      >
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "28px",
+            padding: "1px",
+            background:
+              "linear-gradient(135deg, rgba(96,165,250,0.5) 0%, transparent 40%, transparent 60%, rgba(147,197,253,0.35) 100%)",
+            WebkitMask:
+              "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+            WebkitMaskComposite: "xor",
+            maskComposite: "exclude",
+            pointerEvents: "none",
           }}
         />
+
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "6px 12px",
+            fontSize: "11px",
+            fontWeight: 600,
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            color: "#93c5fd",
+            background: "rgba(59,130,246,0.10)",
+            border: "1px solid rgba(96,165,250,0.25)",
+            borderRadius: "999px",
+            marginBottom: "28px",
+          }}
+        >
+          <span
+            style={{
+              width: "6px",
+              height: "6px",
+              borderRadius: "999px",
+              background: "#60a5fa",
+              boxShadow: "0 0 10px #60a5fa",
+            }}
+          />
+          Acesso via Telegram
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: "24px" }}>
+          <div
+            style={{
+              position: "relative",
+              width: "104px",
+              height: "104px",
+              borderRadius: "28px",
+              background:
+                "linear-gradient(135deg, #1d4ed8 0%, #3b82f6 50%, #60a5fa 100%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow:
+                "0 18px 50px -10px rgba(59,130,246,0.55), 0 0 0 1px rgba(147,197,253,0.3), inset 0 1px 0 rgba(255,255,255,0.25)",
+              overflow: "hidden",
+            }}
+          >
+            {avatar ? (
+              <img
+                src={avatar}
+                alt={displayName}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            ) : (
+              <svg width="52" height="52" viewBox="0 0 24 24" fill="#ffffff" aria-hidden>
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z" />
+              </svg>
+            )}
+          </div>
+        </div>
+
+        <p
+          style={{
+            fontSize: "13px",
+            color: "rgba(226,232,255,0.55)",
+            marginBottom: "8px",
+            fontWeight: 500,
+          }}
+        >
+          Você está prestes a acessar
+        </p>
+        <h1
+          style={{
+            fontSize: "28px",
+            fontWeight: 800,
+            letterSpacing: "-0.02em",
+            lineHeight: 1.15,
+            margin: 0,
+            marginBottom: "6px",
+            color: "#ffffff",
+            textShadow: "0 2px 20px rgba(59,130,246,0.35)",
+          }}
+        >
+          {displayName}
+        </h1>
+        <p
+          style={{
+            fontSize: "13px",
+            color: "rgba(147,197,253,0.85)",
+            fontWeight: 500,
+            marginBottom: "28px",
+          }}
+        >
+          @{typedBot.bot_username}
+        </p>
+
+        <a
+          href={telegramDeepLink}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "10px",
+            width: "100%",
+            padding: "16px 24px",
+            borderRadius: "16px",
+            fontWeight: 700,
+            fontSize: "15px",
+            letterSpacing: "0.01em",
+            color: "#ffffff",
+            background:
+              "linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #60a5fa 100%)",
+            border: "1px solid rgba(147,197,253,0.5)",
+            boxShadow:
+              "0 15px 40px -10px rgba(37,99,235,0.7), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(0,0,0,0.2)",
+            textDecoration: "none",
+            transition: "transform 120ms ease, box-shadow 120ms ease",
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z" />
+          </svg>
+          <span>Acessar no Telegram</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </a>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            marginTop: "20px",
+            padding: "12px 14px",
+            borderRadius: "12px",
+            background: "rgba(59,130,246,0.06)",
+            border: "1px solid rgba(96,165,250,0.12)",
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+          <span style={{ fontSize: "11.5px", color: "rgba(226,232,255,0.7)", textAlign: "left", lineHeight: 1.4 }}>
+            Link oficial protegido. Ao clicar, o Telegram abrirá com o bot verificado.
+          </span>
+        </div>
       </div>
-    </>
+
+      <p
+        style={{
+          position: "relative",
+          marginTop: "28px",
+          fontSize: "10.5px",
+          color: "rgba(226,232,255,0.35)",
+          letterSpacing: "0.22em",
+          textTransform: "uppercase",
+          fontWeight: 600,
+        }}
+      >
+        Powered by EagleBot
+      </p>
+
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `try{var e=document.cookie.split('; ').find(function(c){return c.indexOf('_fbp=')===0});if(!e){document.cookie='_fbp=${fbp}; path=/; max-age=7776000; SameSite=Lax';}}catch(e){}`,
+        }}
+      />
+    </div>
+  );
+}
+
+function InvalidLink() {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "linear-gradient(180deg, #030815 0%, #020614 100%)",
+        color: "rgba(226,232,255,0.5)",
+        fontSize: "14px",
+        fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto',
+      }}
+    >
+      Link invalido
+    </div>
   );
 }

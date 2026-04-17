@@ -40,6 +40,7 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
   const [description, setDescription] = useState(bot.prelander_description ?? "");
   const [imageUrl, setImageUrl] = useState(bot.prelander_image_url ?? "");
   const [ctaText, setCtaText] = useState(bot.prelander_cta_text ?? "");
+  const [redirectDisplayName, setRedirectDisplayName] = useState(bot.redirect_display_name ?? "");
 
   const handleSave = async () => {
     setSaving(true);
@@ -56,6 +57,7 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
         prelander_description: description,
         prelander_image_url: imageUrl,
         prelander_cta_text: ctaText,
+        redirect_display_name: redirectDisplayName,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -346,6 +348,22 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
               <option value="prelander">Pre-lander (pagina customizavel)</option>
             </select>
           </div>
+
+          {trackingMode === "redirect" && (
+            <div className="animate-in">
+              <label className="input-label">Nome exibido no redirect</label>
+              <input
+                type="text"
+                value={redirectDisplayName}
+                onChange={(e) => setRedirectDisplayName(e.target.value)}
+                placeholder="Ex: Oferta VIP"
+                className="input"
+              />
+              <p className="text-(--text-muted) text-xs mt-2">
+                Nome amigável que aparece na pagina antes do Telegram abrir. Deixe em branco para usar o @username do bot.
+              </p>
+            </div>
+          )}
 
           {trackingMode === "prelander" && (
             <div className="space-y-4 animate-in">
