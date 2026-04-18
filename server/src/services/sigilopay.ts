@@ -57,6 +57,9 @@ export class SigiloPay {
     };
 
     console.log(`[sigilopay] Payload enviado:`, JSON.stringify(payload, null, 2));
+    console.log(
+      `[sigilopay] Auth: url=${this.baseUrl}/gateway/pix/receive | pub_len=${this.publicKey.length} pub_prefix="${this.publicKey.slice(0, 8)}" pub_suffix="${this.publicKey.slice(-4)}" | sec_len=${this.secretKey.length} sec_prefix="${this.secretKey.slice(0, 8)}" sec_suffix="${this.secretKey.slice(-4)}"`,
+    );
 
     const response = await fetch(`${this.baseUrl}/gateway/pix/receive`, {
       method: "POST",
