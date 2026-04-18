@@ -14,7 +14,7 @@ const sections = [
   { key: "info", label: "Informacoes do Bot", desc: "Status e configuracao geral", icon: "M13 2L3 14h9l-1 8 10-12h-9l1-8z", color: "var(--accent)" },
   { key: "facebook", label: "Facebook Ads", desc: "Pixel e Conversions API", icon: "M22 12h-4l-3 9L9 3l-3 9H2", color: "var(--cyan)" },
   { key: "utmify", label: "Utmify", desc: "Integracao de tracking", icon: "M22 12h-4l-3 9L9 3l-3 9H2", color: "var(--purple)" },
-  { key: "sigilo", label: "SigiloPay (Pix)", desc: "Gateway de pagamento", icon: "M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6", color: "var(--accent)" },
+  { key: "sigilo", label: "Poseidon Pay (Pix)", desc: "Gateway de pagamento", icon: "M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6", color: "var(--accent)" },
   { key: "tracking", label: "Pagina de Tracking", desc: "Configuracao da pagina de redirecionamento", icon: "M21 12a9 9 0 11-6.219-8.56", color: "var(--amber)" },
 ];
 
@@ -320,7 +320,7 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
         </div>
       </div>
 
-      {/* SigiloPay */}
+      {/* Poseidon Pay */}
       <div className="card p-6 mb-5 relative">
         <div className="absolute top-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-(--accent)/15 to-transparent" />
         <SectionHeader sKey="sigilo" />

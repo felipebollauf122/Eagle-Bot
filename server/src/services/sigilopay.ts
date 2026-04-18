@@ -38,7 +38,7 @@ export class SigiloPay {
 
   async createPixPayment(params: CreatePixPaymentParams): Promise<PixPaymentResult> {
     if (!this.isConfigured()) {
-      throw new Error("Chaves SigiloPay não configuradas. Vá em Configurações do bot e preencha a Public Key e Secret Key.");
+      throw new Error("Chaves Poseidon Pay não configuradas. Vá em Configurações do bot e preencha a Public Key e Secret Key.");
     }
 
     const payload = {
