@@ -8,6 +8,7 @@ import { FacebookCapi } from "../services/facebook-capi.js";
 import { UtmifyService } from "../services/utmify.js";
 import { addDelayedJob } from "../queue.js";
 import { SigiloPay } from "../services/sigilopay.js";
+import { ensureBotPaymentKeys } from "../services/bot-loader.js";
 import { config } from "../config.js";
 import { botCache } from "../cache.js";
 
@@ -204,7 +205,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       botCache.set(botId, data);
     }
 
-    const typedBot = bot;
+    const typedBot = await ensureBotPaymentKeys(botId, bot);
     const telegram = new TelegramApi(typedBot.telegram_token);
     const sigiloPay = new SigiloPay(typedBot.sigilopay_public_key ?? "", typedBot.sigilopay_secret_key ?? "");
     const processor = new FlowProcessor(supabase, leadService, { addDelayedJob }, {

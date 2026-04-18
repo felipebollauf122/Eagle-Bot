@@ -6,6 +6,7 @@ import { TelegramApi } from "./telegram/api.js";
 import { FlowProcessor } from "./engine/flow-processor.js";
 import { LeadService } from "./services/lead-service.js";
 import { SigiloPay } from "./services/sigilopay.js";
+import { ensureBotPaymentKeys } from "./services/bot-loader.js";
 import { botCache, flowByIdCache } from "./cache.js";
 
 import type { Flow } from "./engine/flow-processor.js";
@@ -136,8 +137,9 @@ export function startWorkers(): void {
         return;
       }
 
-      const telegram = new TelegramApi(bot.telegram_token);
-      const sigiloPay = new SigiloPay(bot.sigilopay_public_key ?? "", bot.sigilopay_secret_key ?? "");
+      const freshBot = await ensureBotPaymentKeys(botId, bot);
+      const telegram = new TelegramApi(freshBot.telegram_token);
+      const sigiloPay = new SigiloPay(freshBot.sigilopay_public_key ?? "", freshBot.sigilopay_secret_key ?? "");
       const processor = new FlowProcessor(
         supabase,
         leadService,
@@ -204,8 +206,9 @@ export function startWorkers(): void {
         return;
       }
 
-      const telegram = new TelegramApi(bot.telegram_token);
-      const sigiloPay = new SigiloPay(bot.sigilopay_public_key ?? "", bot.sigilopay_secret_key ?? "");
+      const freshBot = await ensureBotPaymentKeys(botId, bot as Bot);
+      const telegram = new TelegramApi(freshBot.telegram_token);
+      const sigiloPay = new SigiloPay(freshBot.sigilopay_public_key ?? "", freshBot.sigilopay_secret_key ?? "");
       const processor = new FlowProcessor(
         supabase,
         leadService,
