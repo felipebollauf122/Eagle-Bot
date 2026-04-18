@@ -25,7 +25,7 @@ interface PixPaymentResult {
 }
 
 export class SigiloPay {
-  private baseUrl = "https://app.sigilopay.com.br/api/v1";
+  private baseUrl = "https://app.poseidonpay.site/api/v1";
 
   constructor(
     private publicKey: string,
@@ -74,11 +74,11 @@ export class SigiloPay {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       const msg = (errorData as Record<string, unknown>).message ?? response.statusText;
-      throw new Error(`SigiloPay API erro (${response.status}): ${msg}`);
+      throw new Error(`Poseidon Pay API erro (${response.status}): ${msg}`);
     }
 
     const data = await response.json();
-    console.log(`SigiloPay: Pix payment created, txn ${data.transactionId}`);
+    console.log(`[poseidonpay] Pix payment created, txn ${data.transactionId}`);
     return {
       transactionId: data.transactionId,
       status: data.status,
