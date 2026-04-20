@@ -5,7 +5,6 @@ interface CreatePixPaymentParams {
   clientEmail: string;
   clientPhone: string;
   clientDocument: string;
-  description?: string;
   products?: Array<{
     id: string;
     name: string;
@@ -44,7 +43,6 @@ export class SigiloPay {
     const payload = {
       identifier: params.identifier,
       amount: params.amount,
-      description: params.description,
       client: {
         name: params.clientName,
         email: params.clientEmail,
@@ -72,8 +70,19 @@ export class SigiloPay {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const msg = (errorData as Record<string, unknown>).message ?? response.statusText;
+      const rawBody = await response.text().catch(() => "");
+      const server = response.headers.get("server") ?? "unknown";
+      const cfRay = response.headers.get("cf-ray") ?? "none";
+      console.error(
+        `[poseidonpay] Erro ${response.status} ${response.statusText} | server=${server} cf-ray=${cfRay} | body: ${rawBody.slice(0, 500)}`,
+      );
+      let msg: string | unknown = response.statusText;
+      try {
+        const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+        msg = parsed.message ?? parsed.errorCode ?? response.statusText;
+      } catch {
+        msg = rawBody.slice(0, 200) || response.statusText;
+      }
       throw new Error(`Poseidon Pay API erro (${response.status}): ${msg}`);
     }
 

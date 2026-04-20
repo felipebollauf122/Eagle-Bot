@@ -198,7 +198,6 @@ export async function handleProductPaymentCallback(
     payment = await sigiloPay.createPixPayment({
       identifier,
       amount: amountInReais,
-      description: typedProduct.name,
       clientName: ctx.lead.first_name,
       clientEmail,
       clientPhone,
@@ -213,6 +212,8 @@ export async function handleProductPaymentCallback(
       ],
       callbackUrl,
       metadata: {
+        provider: "eaglebot",
+        orderId: identifier,
         lead_id: ctx.lead.id,
         bot_id: ctx.lead.bot_id,
         flow_id: ctx.lead.current_flow_id ?? "",
