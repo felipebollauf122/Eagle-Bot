@@ -66,6 +66,8 @@ export class SigiloPay {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (eaglebot-server/1.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "x-public-key": this.publicKey,
         "x-secret-key": this.secretKey,
       },
@@ -80,11 +82,16 @@ export class SigiloPay {
         `[poseidonpay] Erro ${response.status} ${response.statusText} | server=${server} cf-ray=${cfRay} | body: ${rawBody.slice(0, 500)}`,
       );
       let msg: string | unknown = response.statusText;
-      try {
-        const parsed = JSON.parse(rawBody) as Record<string, unknown>;
-        msg = parsed.message ?? parsed.errorCode ?? response.statusText;
-      } catch {
-        msg = rawBody.slice(0, 200) || response.statusText;
+      const looksLikeHtml = rawBody.trim().startsWith("<");
+      if (looksLikeHtml) {
+        msg = `bloqueado pelo Cloudflare/WAF (server=${server}, cf-ray=${cfRay})`;
+      } else {
+        try {
+          const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+          msg = parsed.message ?? parsed.errorCode ?? response.statusText;
+        } catch {
+          msg = rawBody.slice(0, 200) || response.statusText;
+        }
       }
       throw new Error(`Poseidon Pay API erro (${response.status}): ${msg}`);
     }
