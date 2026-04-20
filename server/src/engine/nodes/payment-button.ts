@@ -202,10 +202,12 @@ export async function handleProductPaymentCallback(
       clientEmail,
       clientPhone,
       clientDocument,
+      // Gateway SEMPRE recebe o nome real do produto.
+      // O ghost_name é apenas para exibição ao cliente (tanto no black quanto no white flow).
       products: [
         {
           id: typedProduct.id,
-          name: displayName,
+          name: typedProduct.name,
           quantity: 1,
           price: amountInReais,
         },
