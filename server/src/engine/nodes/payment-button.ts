@@ -205,7 +205,7 @@ export async function handleProductPaymentCallback(
       products: [
         {
           id: typedProduct.id,
-          name: typedProduct.name,
+          name: displayName,
           quantity: 1,
           price: amountInReais,
         },
@@ -226,9 +226,11 @@ export async function handleProductPaymentCallback(
     if (loadingMsg) {
       ctx.telegram.deleteMessage(ctx.chatId, loadingMsg.message_id).catch(() => {});
     }
+    // Strip any HTML/tags and cap length to avoid Telegram parse errors
+    const safeMsg = errorMsg.replace(/<[^>]*>/g, "").replace(/[<>&]/g, "").slice(0, 200);
     await ctx.telegram.sendMessage({
       chatId: ctx.chatId,
-      text: `⚠️ Erro no pagamento: ${errorMsg}`,
+      text: `⚠️ Erro no pagamento: ${safeMsg}`,
     });
     return { nextNodeId: "wait" };
   }

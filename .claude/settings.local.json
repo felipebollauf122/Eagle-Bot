@@ -58,7 +58,23 @@
       "Bash(taskkill //F //IM \"tsx.exe\")",
       "Bash(taskkill //F //IM \"node.exe\")",
       "Bash(timeout 5 tail -f C:/Users/ADMINI~1/AppData/Local/Temp/claude/c--Users-Administrator-eaglebot/b931580e-f089-4346-a1a0-195a8111f408/tasks/b482qxrys.output)",
-      "Bash(timeout 5 tail -f C:/Users/ADMINI~1/AppData/Local/Temp/claude/c--Users-Administrator-eaglebot/b931580e-f089-4346-a1a0-195a8111f408/tasks/beevkah43.output)"
+      "Bash(timeout 5 tail -f C:/Users/ADMINI~1/AppData/Local/Temp/claude/c--Users-Administrator-eaglebot/b931580e-f089-4346-a1a0-195a8111f408/tasks/beevkah43.output)",
+      "Bash(npx -p typescript tsc --noEmit)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3099)",
+      "Bash(ls /c/Users/Administrator/eaglebot/docker-compose*.yml /c/Users/Administrator/eaglebot/Dockerfile*)",
+      "Bash(tasklist)",
+      "Bash(xargs ls *)",
+      "Bash(powershell.exe -Command \"Start-Process 'C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe' -WindowStyle Hidden\")",
+      "Bash(npx -p typescript tsc --noEmit -p tsconfig.json)",
+      "Bash(curl -v -X POST \"https://app.poseidonpay.site/api/v1/gateway/pix/receive\" -H \"Content-Type: application/json\" -H \"x-public-key: test\" -H \"x-secret-key: test\" -d '{\"test\":1}')",
+      "Bash(curl -s -o /tmp/resp.txt -w \"HTTP %{http_code}\\\\n\" -X POST \"https://app.poseidonpay.site/api/v1/gateway/pix/receive\" -H \"Content-Type: application/json\" -H \"x-public-key: test\" -H \"x-secret-key: test\" -d '{\"identifier\":\"x\",\"amount\":10,\"client\":{\"name\":\"a\",\"email\":\"a@a.com\",\"phone\":\"11999999999\",\"document\":\"12345678900\"}}')",
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /tmp/resp2.txt -w \"HTTP %{http_code}\\\\n\" \"https://app.poseidonpay.site/api/v1/gateway/pix/receive\")",
+      "Bash(curl -s -o /tmp/r3.txt -w \"HTTP %{http_code}\\\\n\" -X POST \"https://app.poseidonpay.site/api/v1/gateway/pix/receive\" -H \"Content-Type: application/json\" -d '{\"identifier\":\"x\",\"amount\":10,\"client\":{\"name\":\"a\",\"email\":\"a@a.com\",\"phone\":\"11999999999\",\"document\":\"12345678900\"}}')",
+      "Bash(git pull *)",
+      "Bash(curl -s -o /tmp/r4.txt -w \"HTTP %{http_code}\\\\n\" -X POST \"https://app.poseidonpay.site/api/v1/gateway/pix/receive\" -H \"Content-Type: application/json\" -H \"x-public-key: ugaslucas1_fakekeyXXX\" -H \"x-secret-key: fake_secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\" -d '{\"identifier\":\"test123\",\"amount\":10.00,\"client\":{\"name\":\"Teste\",\"email\":\"teste@teste.com\",\"phone\":\"11999999999\",\"document\":\"12345678900\"}}')",
+      "WebFetch(domain:app.poseidonpay.site)",
+      "WebFetch(domain:docs.poseidonpay.site)"
     ]
   }
 }

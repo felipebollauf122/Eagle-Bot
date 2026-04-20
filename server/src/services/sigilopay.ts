@@ -40,7 +40,7 @@ export class SigiloPay {
       throw new Error("Chaves Poseidon Pay não configuradas. Vá em Configurações do bot e preencha a Public Key e Secret Key.");
     }
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       identifier: params.identifier,
       amount: params.amount,
       client: {
@@ -49,10 +49,13 @@ export class SigiloPay {
         phone: params.clientPhone,
         document: params.clientDocument,
       },
-      products: params.products,
       callbackUrl: params.callbackUrl,
       metadata: params.metadata,
     };
+
+    if (params.products && params.products.length > 0) {
+      payload.products = params.products;
+    }
 
     console.log(`[sigilopay] Payload enviado:`, JSON.stringify(payload, null, 2));
     console.log(
