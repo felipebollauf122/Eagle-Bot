@@ -111,6 +111,13 @@ export class TelegramApi {
       });
       return true;
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      // These are expected and harmless — silence them:
+      //  - "message to delete not found": user already deleted it, or 48h window passed
+      //  - "message can't be deleted": admin msgs, service msgs, etc.
+      if (/message to delete not found|message can't be deleted/i.test(msg)) {
+        return false;
+      }
       console.error(`[telegram] Failed to delete message ${messageId}:`, error);
       return false;
     }
