@@ -78,11 +78,14 @@ export async function handlePaymentBundleNode(
     return { nextNodeId: null };
   }
 
+  // No black flow o cliente vê o ghost_name (fallback pro nome real).
+  // No white flow ele sempre vê o nome real.
+  const isBlack = ctx.lead.active_flow_name === "_black_flow";
+
   // Build inline keyboard — one button per product with name + price
-  // Show ghost_name to the client if available, otherwise real name
   const inlineKeyboard = items.map((item) => {
     const product = item.products;
-    const displayName = product.ghost_name || product.name;
+    const displayName = isBlack ? (product.ghost_name || product.name) : product.name;
     const priceInReais = product.price / 100;
     const priceFormatted = priceInReais.toLocaleString("pt-BR", {
       style: "currency",
@@ -171,9 +174,11 @@ export async function handleProductPaymentCallback(
   }
 
   const typedProduct = product as BundleProduct;
-  // Ghost name is shown to the client if available; real name always goes to the gateway
-  const displayName = typedProduct.ghost_name || typedProduct.name;
-  console.log(`[payment] ghost_name="${typedProduct.ghost_name}", displayName="${displayName}"`);
+  // Black flow: cliente vê ghost_name (fallback pro real). White flow: cliente vê nome real.
+  // Gateway e tracking sempre recebem typedProduct.name (nome real).
+  const isBlack = ctx.lead.active_flow_name === "_black_flow";
+  const displayName = isBlack ? (typedProduct.ghost_name || typedProduct.name) : typedProduct.name;
+  console.log(`[payment] isBlack=${isBlack}, ghost_name="${typedProduct.ghost_name}", displayName="${displayName}"`);
   const identifier = `eaglebot_${ctx.lead.id}_${Date.now()}`;
   const amountInReais = typedProduct.price / 100;
 
