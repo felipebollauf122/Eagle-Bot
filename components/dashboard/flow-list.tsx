@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createFlow, toggleFlow, deleteFlow, getOrCreateNamedFlow } from "@/lib/actions/flow-actions";
 import { toggleBlackEnabled } from "@/lib/actions/bot-settings-actions";
+import { exportFlow, importFlow, type ImportMode } from "@/lib/actions/flow-import-export";
 import type { Flow, TriggerType } from "@/lib/types/database";
 
 interface FlowListProps {
@@ -11,6 +12,34 @@ interface FlowListProps {
   blackFlow: Flow | null;
   botId: string;
   blackEnabled: boolean;
+}
+
+function downloadJson(filename: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "flow";
+}
+
+async function handleExport(flow: Flow) {
+  try {
+    const exp = await exportFlow(flow.id);
+    downloadJson(`${slugify(flow.name)}.eaglebot-flow.json`, exp);
+  } catch (e) {
+    alert(`Erro ao exportar: ${e instanceof Error ? e.message : "desconhecido"}`);
+  }
 }
 
 function FlowCard({
@@ -23,11 +52,18 @@ function FlowCard({
   variant?: "visual" | "black";
 }) {
   const [toggling, setToggling] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const handleToggle = async () => {
     setToggling(true);
     await toggleFlow(flow.id, !flow.is_active);
     window.location.reload();
+  };
+
+  const onExport = async () => {
+    setExporting(true);
+    await handleExport(flow);
+    setExporting(false);
   };
 
   const accentColor = variant === "black" ? "var(--red)" : "var(--accent)";
@@ -80,6 +116,14 @@ function FlowCard({
           >
             {flow.is_active ? "Ativo" : "Inativo"}
           </button>
+          <button
+            onClick={onExport}
+            disabled={exporting}
+            title="Exportar fluxo"
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-all text-(--text-secondary) border border-(--border-subtle) hover:bg-white/4 disabled:opacity-50"
+          >
+            {exporting ? "..." : "Exportar"}
+          </button>
           <a
             href={`/dashboard/bots/${flow.bot_id}/flows/${flow.id}/editor`}
             className="px-4 py-1.5 text-xs font-semibold rounded-lg transition-all relative overflow-hidden"
@@ -103,6 +147,19 @@ export function FlowList({ flows, visualFlow, blackFlow, botId, blackEnabled }: 
   const [togglingBlack, setTogglingBlack] = useState(false);
   const [creatingVisual, setCreatingVisual] = useState(false);
   const [creatingBlack, setCreatingBlack] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importMode, setImportMode] = useState<"new" | "replace">("new");
+  const [importNewName, setImportNewName] = useState("");
+  const [importReplaceFlowId, setImportReplaceFlowId] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  const allReplaceableFlows: Array<{ id: string; label: string }> = [
+    ...(visualFlow ? [{ id: visualFlow.id, label: "Fluxo Principal (_visual_flow)" }] : []),
+    ...(blackFlow ? [{ id: blackFlow.id, label: "Fluxo Black (_black_flow)" }] : []),
+    ...flows.map((f) => ({ id: f.id, label: f.name })),
+  ];
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -137,6 +194,46 @@ export function FlowList({ flows, visualFlow, blackFlow, botId, blackEnabled }: 
     }
   };
 
+  const handleImport = async () => {
+    setImportError(null);
+    if (!importFile) {
+      setImportError("Selecione um arquivo JSON");
+      return;
+    }
+    let payload: unknown;
+    try {
+      const text = await importFile.text();
+      payload = JSON.parse(text);
+    } catch {
+      setImportError("Arquivo não é um JSON válido");
+      return;
+    }
+
+    let mode: ImportMode;
+    if (importMode === "new") {
+      if (!importNewName.trim()) {
+        setImportError("Informe um nome para o novo fluxo");
+        return;
+      }
+      mode = { kind: "new", name: importNewName.trim() };
+    } else {
+      if (!importReplaceFlowId) {
+        setImportError("Selecione o fluxo a substituir");
+        return;
+      }
+      mode = { kind: "replace", flowId: importReplaceFlowId };
+    }
+
+    setImporting(true);
+    try {
+      const result = await importFlow(botId, payload, mode);
+      window.location.href = `/dashboard/bots/${botId}/flows/${result.flowId}/editor`;
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : "Erro desconhecido");
+      setImporting(false);
+    }
+  };
+
   const handleCreateNamedFlow = async (flowName: "_visual_flow" | "_black_flow") => {
     const setter = flowName === "_visual_flow" ? setCreatingVisual : setCreatingBlack;
     setter(true);
@@ -157,12 +254,23 @@ export function FlowList({ flows, visualFlow, blackFlow, botId, blackEnabled }: 
           <h1 className="text-2xl font-bold text-foreground tracking-tight page-title">Fluxos</h1>
           <p className="text-(--text-secondary) text-sm mt-1">Gerencie os fluxos de mensagens do seu bot</p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="btn-primary">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          Novo Fluxo
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setShowImport(true); setImportError(null); }}
+            className="px-4 py-2 text-xs font-semibold rounded-lg transition-all text-(--text-secondary) border border-(--border-subtle) hover:bg-white/4 flex items-center gap-2"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            Importar
+          </button>
+          <button onClick={() => setShowCreate(true)} className="btn-primary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Novo Fluxo
+          </button>
+        </div>
       </div>
 
       {/* ═══ VISUAL FLOW ═══ */}
@@ -255,6 +363,97 @@ export function FlowList({ flows, visualFlow, blackFlow, botId, blackEnabled }: 
         <h2 className="text-(--text-secondary) font-semibold text-sm tracking-tight">Outros Fluxos</h2>
       </div>
 
+      {showImport && (
+        <div className="card p-6 mb-6 animate-scale relative">
+          <div className="absolute top-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-(--accent)/30 to-transparent" />
+          <h3 className="text-foreground font-semibold text-sm mb-4 tracking-tight">Importar Fluxo</h3>
+
+          <div className="mb-4">
+            <label className="input-label">Arquivo JSON</label>
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+              className="input"
+            />
+            <p className="text-(--text-muted) text-[11px] mt-1">
+              Produtos e conjuntos do fluxo serão recriados neste bot.
+            </p>
+          </div>
+
+          <div className="mb-4">
+            <label className="input-label">Destino</label>
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setImportMode("new")}
+                className={`flex-1 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                  importMode === "new"
+                    ? "bg-(--accent-muted) text-(--accent) border border-(--accent)/30"
+                    : "text-(--text-secondary) border border-(--border-subtle) hover:bg-white/4"
+                }`}
+              >
+                Criar novo fluxo
+              </button>
+              <button
+                type="button"
+                onClick={() => setImportMode("replace")}
+                disabled={allReplaceableFlows.length === 0}
+                className={`flex-1 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                  importMode === "replace"
+                    ? "bg-(--accent-muted) text-(--accent) border border-(--accent)/30"
+                    : "text-(--text-secondary) border border-(--border-subtle) hover:bg-white/4"
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                Substituir fluxo existente
+              </button>
+            </div>
+
+            {importMode === "new" ? (
+              <input
+                type="text"
+                value={importNewName}
+                onChange={(e) => setImportNewName(e.target.value)}
+                placeholder="Nome do novo fluxo"
+                className="input"
+              />
+            ) : (
+              <select
+                value={importReplaceFlowId}
+                onChange={(e) => setImportReplaceFlowId(e.target.value)}
+                className="input"
+              >
+                <option value="">Selecione o fluxo...</option>
+                {allReplaceableFlows.map((f) => (
+                  <option key={f.id} value={f.id}>{f.label}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {importError && (
+            <p className="text-(--red) text-xs mb-3">{importError}</p>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={handleImport}
+              disabled={importing}
+              className="btn-primary"
+            >
+              {importing ? "Importando..." : "Importar"}
+            </button>
+            <button
+              onClick={() => { setShowImport(false); setImportFile(null); setImportError(null); }}
+              disabled={importing}
+              className="btn-ghost"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
       {showCreate && (
         <div className="card p-6 mb-6 animate-scale relative">
           <div className="absolute top-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-(--accent)/30 to-transparent" />
@@ -325,6 +524,13 @@ export function FlowList({ flows, visualFlow, blackFlow, botId, blackEnabled }: 
                   className={`toggle-btn ${flow.is_active ? "on" : "off"}`}
                 >
                   {flow.is_active ? "Ativo" : "Inativo"}
+                </button>
+                <button
+                  onClick={() => handleExport(flow)}
+                  title="Exportar fluxo"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-all text-(--text-secondary) border border-(--border-subtle) hover:bg-white/4"
+                >
+                  Exportar
                 </button>
                 <a
                   href={`/dashboard/bots/${flow.bot_id}/flows/${flow.id}/editor`}
