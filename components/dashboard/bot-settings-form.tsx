@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { saveBotSettings, updateBotAvatar, toggleBlackEnabled } from "@/lib/actions/bot-settings-actions";
+import { saveBotSettings, updateBotAvatar, toggleBlackEnabled, toggleProtectContent } from "@/lib/actions/bot-settings-actions";
 import { uploadMedia } from "@/lib/actions/upload-actions";
 import type { Bot } from "@/lib/types/database";
 
@@ -26,6 +26,8 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
   const [activateError, setActivateError] = useState<string | null>(null);
   const [blackEnabled, setBlackEnabled] = useState(bot.black_enabled ?? false);
   const [togglingBlack, setTogglingBlack] = useState(false);
+  const [protectContent, setProtectContent] = useState(bot.protect_content ?? true);
+  const [togglingProtect, setTogglingProtect] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(bot.avatar_url ?? "");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -252,6 +254,44 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
             {activating ? "Processando..." : isActive ? "Desativar Bot" : "Ativar Bot"}
           </button>
           {activateError && <span className="text-(--red) text-xs font-medium">{activateError}</span>}
+        </div>
+
+        {/* Protect Content Toggle */}
+        <div className="mt-6 pt-5 border-t border-(--border-subtle)">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="section-icon w-8 h-8" style={{ background: "color-mix(in srgb, var(--cyan) 14%, transparent)", boxShadow: "0 0 12px -4px var(--cyan)" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0110 0v4" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-foreground font-semibold text-sm tracking-tight">Proteger Conteúdo</h3>
+                <p className="text-(--text-muted) text-xs">Impede encaminhar, copiar textos e salvar mídias</p>
+              </div>
+            </div>
+            <button
+              onClick={async () => {
+                setTogglingProtect(true);
+                try {
+                  await toggleProtectContent(bot.id, !protectContent);
+                  setProtectContent(!protectContent);
+                } catch (e) {
+                  console.error(e);
+                } finally {
+                  setTogglingProtect(false);
+                }
+              }}
+              disabled={togglingProtect}
+              className={`relative w-11 h-6 rounded-full transition-all duration-200 ${protectContent ? "bg-(--cyan)" : "bg-(--border-default)"}`}
+              style={protectContent ? { boxShadow: "0 0 12px -2px rgba(34,211,238,0.4)" } : {}}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${protectContent ? "translate-x-5" : "translate-x-0"}`}
+              />
+            </button>
+          </div>
         </div>
 
         {/* Black Flow Toggle — admin only */}

@@ -31,6 +31,7 @@ interface Bot {
   id: string;
   tenant_id: string;
   telegram_token: string;
+  protect_content: boolean;
   sigilopay_public_key: string | null;
   sigilopay_secret_key: string | null;
 }
@@ -71,7 +72,7 @@ async function processConfig(db: SupabaseClient, cfg: RemarketingConfig): Promis
   // Get bot
   const { data: bot } = await db
     .from("bots")
-    .select("id, tenant_id, telegram_token, sigilopay_public_key, sigilopay_secret_key")
+    .select("id, tenant_id, telegram_token, protect_content, sigilopay_public_key, sigilopay_secret_key")
     .eq("id", cfg.bot_id)
     .eq("is_active", true)
     .single();
@@ -102,7 +103,7 @@ async function processConfig(db: SupabaseClient, cfg: RemarketingConfig): Promis
   if (!leads || leads.length === 0) return;
 
   const leadService = new LeadService(db);
-  const telegram = new TelegramApi(typedBot.telegram_token);
+  const telegram = new TelegramApi(typedBot.telegram_token, { protectContent: typedBot.protect_content });
   const sigiloPay = new SigiloPay(typedBot.sigilopay_public_key ?? "", typedBot.sigilopay_secret_key ?? "");
   const processor = new FlowProcessor(db, leadService, { addDelayedJob }, {
     sigiloPay,

@@ -17,6 +17,7 @@ interface Bot {
   id: string;
   tenant_id: string;
   telegram_token: string;
+  protect_content: boolean;
   facebook_pixel_id: string | null;
   facebook_access_token: string | null;
   utmify_api_key: string | null;
@@ -165,7 +166,7 @@ export async function processPaymentCallback(botId: string | null, body: Record<
   const typedLead = lead as Lead;
 
   // Notify user that payment was confirmed
-  const telegram = new TelegramApi(bot.telegram_token);
+  const telegram = new TelegramApi(bot.telegram_token, { protectContent: bot.protect_content });
   await telegram.sendMessage({
     chatId: typedLead.telegram_user_id,
     text: "✅ Pagamento confirmado! Obrigado pela compra.",

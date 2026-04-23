@@ -86,3 +86,24 @@ export async function toggleBlackEnabled(botId: string, enabled: boolean) {
   if (error) throw new Error(`Failed to toggle black: ${error.message}`);
   return { success: true };
 }
+
+export async function toggleProtectContent(botId: string, enabled: boolean) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
+  if (!bot) throw new Error("Bot not found");
+
+  const { error } = await supabase
+    .from("bots")
+    .update({ protect_content: enabled })
+    .eq("id", botId);
+
+  if (error) throw new Error(`Failed to toggle protect_content: ${error.message}`);
+  invalidateBotCache(botId);
+  return { success: true };
+}

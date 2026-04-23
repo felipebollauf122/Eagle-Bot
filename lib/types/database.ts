@@ -58,6 +58,7 @@ export interface Bot {
   avatar_url: string | null;
   redirect_display_name: string | null;
   black_enabled: boolean;
+  protect_content: boolean;
   created_at: string;
 }
 

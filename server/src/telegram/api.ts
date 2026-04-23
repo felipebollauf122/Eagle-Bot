@@ -36,9 +36,11 @@ export interface TelegramMessage {
 
 export class TelegramApi {
   private baseUrl: string;
+  private protectContent: boolean;
 
-  constructor(private token: string) {
+  constructor(private token: string, options: { protectContent?: boolean } = {}) {
     this.baseUrl = `https://api.telegram.org/bot${token}`;
+    this.protectContent = options.protectContent ?? false;
   }
 
   get botToken(): string {
@@ -58,6 +60,9 @@ export class TelegramApi {
     };
     if (params.replyMarkup) {
       body.reply_markup = params.replyMarkup;
+    }
+    if (this.protectContent) {
+      body.protect_content = true;
     }
     const result = await this.request("sendMessage", body);
     return result as TelegramMessage | null;
@@ -79,6 +84,9 @@ export class TelegramApi {
     if (params.replyMarkup) {
       body.reply_markup = params.replyMarkup;
     }
+    if (this.protectContent) {
+      body.protect_content = true;
+    }
     const result = await this.request("sendPhoto", body);
     return result as TelegramMessage | null;
   }
@@ -98,6 +106,9 @@ export class TelegramApi {
     }
     if (params.replyMarkup) {
       body.reply_markup = params.replyMarkup;
+    }
+    if (this.protectContent) {
+      body.protect_content = true;
     }
     const result = await this.request("sendVideo", body);
     return result as TelegramMessage | null;

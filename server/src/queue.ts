@@ -16,6 +16,7 @@ interface Bot {
   id: string;
   tenant_id: string;
   telegram_token: string;
+  protect_content: boolean;
   sigilopay_public_key: string | null;
   sigilopay_secret_key: string | null;
 }
@@ -138,7 +139,7 @@ export function startWorkers(): void {
       }
 
       const freshBot = await ensureBotPaymentKeys(botId, bot);
-      const telegram = new TelegramApi(freshBot.telegram_token);
+      const telegram = new TelegramApi(freshBot.telegram_token, { protectContent: freshBot.protect_content });
       const sigiloPay = new SigiloPay(freshBot.sigilopay_public_key ?? "", freshBot.sigilopay_secret_key ?? "");
       const processor = new FlowProcessor(
         supabase,
@@ -207,7 +208,7 @@ export function startWorkers(): void {
       }
 
       const freshBot = await ensureBotPaymentKeys(botId, bot as Bot);
-      const telegram = new TelegramApi(freshBot.telegram_token);
+      const telegram = new TelegramApi(freshBot.telegram_token, { protectContent: freshBot.protect_content });
       const sigiloPay = new SigiloPay(freshBot.sigilopay_public_key ?? "", freshBot.sigilopay_secret_key ?? "");
       const processor = new FlowProcessor(
         supabase,

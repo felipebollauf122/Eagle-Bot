@@ -18,6 +18,7 @@ interface Bot {
   telegram_token: string;
   is_active: boolean;
   black_enabled: boolean;
+  protect_content: boolean;
   sigilopay_public_key: string | null;
   sigilopay_secret_key: string | null;
   facebook_pixel_id: string | null;
@@ -206,7 +207,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
     }
 
     const typedBot = await ensureBotPaymentKeys(botId, bot);
-    const telegram = new TelegramApi(typedBot.telegram_token);
+    const telegram = new TelegramApi(typedBot.telegram_token, { protectContent: typedBot.protect_content });
     const sigiloPay = new SigiloPay(typedBot.sigilopay_public_key ?? "", typedBot.sigilopay_secret_key ?? "");
     const processor = new FlowProcessor(supabase, leadService, { addDelayedJob }, {
       sigiloPay,
