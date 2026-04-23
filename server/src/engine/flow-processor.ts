@@ -130,15 +130,16 @@ export class FlowProcessor {
   }
 
   /**
-   * Queue a message for deletion (only for black flow).
+   * Queue a message for deletion after `delayMinutes` minutes.
    */
-  private async queueBlackMessageDeletion(
+  private async queueMessageDeletion(
     botId: string,
     botToken: string,
     chatId: number,
     messageId: number,
+    delayMinutes: number,
   ): Promise<void> {
-    const deleteAt = new Date(Date.now() + BLACK_DELETE_DELAY_MINUTES * 60 * 1000).toISOString();
+    const deleteAt = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
     await this.db.from("message_delete_queue").insert({
       bot_id: botId,
       bot_token: botToken,
@@ -150,7 +151,8 @@ export class FlowProcessor {
   }
 
   /**
-   * Execute a flow. If isBlack=true, captures message_ids and queues them for deletion.
+   * Execute a flow. If isBlack=true, messages are queued for deletion after 15min (black flow default).
+   * If deleteAfterMinutes is provided, overrides isBlack and uses that delay instead.
    */
   async executeFlow(
     flow: Flow,
@@ -159,7 +161,14 @@ export class FlowProcessor {
     chatId: number,
     startNodeId?: string,
     isBlack?: boolean,
+    deleteAfterMinutes?: number | null,
   ): Promise<{ blocked?: boolean }> {
+    const deletionDelay =
+      deleteAfterMinutes && deleteAfterMinutes > 0
+        ? deleteAfterMinutes
+        : isBlack
+        ? BLACK_DELETE_DELAY_MINUTES
+        : null;
     const { nodes, edges } = flow.flow_data;
 
     let currentNodeId = startNodeId ?? nodes.find((n) => n.type === "trigger")?.id;
@@ -198,10 +207,10 @@ export class FlowProcessor {
         return { blocked: true };
       }
 
-      // If black flow, capture message_ids from result for deletion queue
-      if (isBlack && result.messageIds) {
+      // Auto-delete: black flow (15min) or explicit deleteAfterMinutes
+      if (deletionDelay && result.messageIds) {
         for (const msgId of result.messageIds) {
-          await this.queueBlackMessageDeletion(flow.bot_id, telegram.botToken, chatId, msgId);
+          await this.queueMessageDeletion(flow.bot_id, telegram.botToken, chatId, msgId, deletionDelay);
         }
       }
 
@@ -388,7 +397,7 @@ export class FlowProcessor {
           caption: "📱 QR Code Pix — escaneie com o app do seu banco",
         });
         if (isBlack && msg) {
-          await this.queueBlackMessageDeletion(bot.id, telegram.botToken, chatId, msg.message_id);
+          await this.queueMessageDeletion(bot.id, telegram.botToken, chatId, msg.message_id, BLACK_DELETE_DELAY_MINUTES);
         }
       } else {
         await telegram.sendMessage({
@@ -441,7 +450,7 @@ export class FlowProcessor {
         // Queue black flow messages for deletion
         if (isBlack && result.messageIds) {
           for (const msgId of result.messageIds) {
-            await this.queueBlackMessageDeletion(typedFlow.bot_id, telegram.botToken, chatId, msgId);
+            await this.queueMessageDeletion(typedFlow.bot_id, telegram.botToken, chatId, msgId, BLACK_DELETE_DELAY_MINUTES);
           }
         }
 

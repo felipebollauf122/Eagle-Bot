@@ -25,6 +25,7 @@ interface RemarketingFlow {
   audience: "all" | "no_purchase" | "pending_payment";
   flow_data: Flow["flow_data"];
   is_active: boolean;
+  delete_after_minutes: number | null;
 }
 
 interface Bot {
@@ -211,7 +212,15 @@ async function processLeadRemarketing(
     updated_at: "",
   };
 
-  const flowResult = await processor.executeFlow(flowForProcessor, lead, telegram, lead.telegram_user_id);
+  const flowResult = await processor.executeFlow(
+    flowForProcessor,
+    lead,
+    telegram,
+    lead.telegram_user_id,
+    undefined,
+    false,
+    nextFlow.delete_after_minutes,
+  );
 
   // If user blocked the bot, mark lead so we skip them in future remarketing
   if (flowResult.blocked) {

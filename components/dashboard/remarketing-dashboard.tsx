@@ -105,6 +105,13 @@ export function RemarketingDashboard({ botId, config, flows: initialFlows }: Pro
     );
   };
 
+  const handleDeleteAfterChange = async (flowId: string, value: number | null) => {
+    await updateRemarketingFlow(flowId, { delete_after_minutes: value });
+    setFlows((prev) =>
+      prev.map((f) => (f.id === flowId ? { ...f, delete_after_minutes: value } : f))
+    );
+  };
+
   return (
     <div className="max-w-3xl">
       <div className="flex items-center justify-between mb-8">
@@ -239,6 +246,34 @@ export function RemarketingDashboard({ botId, config, flows: initialFlows }: Pro
                       </select>
                       <span className="text-(--text-ghost) text-[11px]">·</span>
                       <span className="text-(--text-ghost) text-[11px]"><span className="stat-value">{flow.flow_data.nodes.length}</span> nos</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <label className="flex items-center gap-1.5 text-[11px] text-(--text-muted) cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={flow.delete_after_minutes != null}
+                          onChange={(e) =>
+                            handleDeleteAfterChange(flow.id, e.target.checked ? 60 : null)
+                          }
+                          className="accent-(--amber) w-3 h-3"
+                        />
+                        Deletar apos
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={1440}
+                        disabled={flow.delete_after_minutes == null}
+                        value={flow.delete_after_minutes ?? 60}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          if (Number.isFinite(n) && n > 0) {
+                            handleDeleteAfterChange(flow.id, n);
+                          }
+                        }}
+                        className="w-14 bg-white/4 border border-(--border-subtle) rounded-md px-1.5 py-0.5 text-[11px] text-foreground text-center disabled:opacity-40"
+                      />
+                      <span className="text-(--text-ghost) text-[11px]">min</span>
                     </div>
                   </div>
                 </div>

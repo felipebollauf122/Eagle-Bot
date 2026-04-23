@@ -169,6 +169,7 @@ export interface RemarketingFlow {
   audience: RemarketingAudience;
   flow_data: FlowData;
   is_active: boolean;
+  delete_after_minutes: number | null;
   created_at: string;
   updated_at: string;
 }

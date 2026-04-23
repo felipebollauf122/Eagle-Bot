@@ -125,7 +125,7 @@ export async function createRemarketingFlow(
 /** Update remarketing flow metadata */
 export async function updateRemarketingFlow(
   flowId: string,
-  updates: { name?: string; audience?: RemarketingAudience; sort_order?: number; is_active?: boolean },
+  updates: { name?: string; audience?: RemarketingAudience; sort_order?: number; is_active?: boolean; delete_after_minutes?: number | null },
 ) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
