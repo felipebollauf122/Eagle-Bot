@@ -3,6 +3,7 @@ import { config } from "./config.js";
 import { handleTelegramWebhook } from "./webhook/telegram.js";
 import { handlePaymentWebhookGlobal, handlePaymentWebhook } from "./webhook/payment.js";
 import { startWorkers } from "./queue.js";
+import { startMtprotoWorker } from "./workers/mtproto-worker.js";
 import { supabase } from "./db.js";
 import { TelegramApi } from "./telegram/api.js";
 import { botCache, flowCache, flowByIdCache } from "./cache.js";
@@ -133,6 +134,7 @@ app.post("/api/bots/:botId/deactivate", async (req, res) => {
 app.listen(config.port, () => {
   console.log(`EagleBot Engine running on port ${config.port}`);
   startWorkers();
+  startMtprotoWorker();
 });
 
 export { app };

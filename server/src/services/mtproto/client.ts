@@ -1,5 +1,6 @@
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
+import bigInt from "big-integer";
 
 export interface SendCodeResult {
   phoneCodeHash: string;
@@ -97,7 +98,7 @@ export class MtprotoClient {
       new Api.contacts.ImportContacts({
         contacts: [
           new Api.InputPhoneContact({
-            clientId: BigInt(Date.now()) as unknown as bigint,
+            clientId: bigInt(Date.now()),
             phone: target,
             firstName: "lead",
             lastName: "",
