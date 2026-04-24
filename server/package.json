@@ -15,7 +15,8 @@
     "bullmq": "^5",
     "express": "^5",
     "grammy": "^1",
-    "ioredis": "^5"
+    "ioredis": "^5",
+    "telegram": "^2.26.22"
   },
   "devDependencies": {
     "@types/express": "^5",

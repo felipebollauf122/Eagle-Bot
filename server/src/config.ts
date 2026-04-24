@@ -16,4 +16,7 @@ export const config = {
   supabaseServiceKey: env("SUPABASE_SERVICE_ROLE_KEY"),
   redisUrl: envOptional("REDIS_URL", "redis://localhost:6379"),
   baseWebhookUrl: env("BASE_WEBHOOK_URL"), // e.g. https://your-domain.com
+  telegramApiId: parseInt(envOptional("TELEGRAM_API_ID", "0"), 10),
+  telegramApiHash: envOptional("TELEGRAM_API_HASH", ""),
+  mtprotoWorkerEnabled: envOptional("MTPROTO_WORKER_ENABLED", "true") === "true",
 } as const;
