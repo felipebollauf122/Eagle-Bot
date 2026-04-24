@@ -4,6 +4,7 @@ import { handleTelegramWebhook } from "./webhook/telegram.js";
 import { handlePaymentWebhookGlobal, handlePaymentWebhook } from "./webhook/payment.js";
 import { startWorkers } from "./queue.js";
 import { startMtprotoWorker } from "./workers/mtproto-worker.js";
+import { enqueueMtproto, type MtprotoJobData } from "./queue-mtproto.js";
 import { supabase } from "./db.js";
 import { TelegramApi } from "./telegram/api.js";
 import { botCache, flowCache, flowByIdCache } from "./cache.js";
@@ -85,6 +86,22 @@ app.post("/api/bots/:botId/register-webhook", async (req, res) => {
   } catch (error) {
     console.error("Failed to register webhook:", error);
     res.status(500).json({ error: "Failed to register webhook" });
+  }
+});
+
+// MTProto job enqueue — called from dashboard server actions
+app.post("/api/mtproto/enqueue", async (req, res) => {
+  try {
+    const job = req.body as MtprotoJobData;
+    if (!job?.kind) {
+      res.status(400).json({ error: "invalid job" });
+      return;
+    }
+    await enqueueMtproto(job);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Failed to enqueue mtproto job:", error);
+    res.status(500).json({ error: "enqueue failed" });
   }
 });
 
