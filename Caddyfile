@@ -1,0 +1,8 @@
+bot.eaglebots.site {
+    reverse_proxy eaglebot:3001
+    encode gzip
+    log {
+        output stdout
+        format console
+    }
+}
