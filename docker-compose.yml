@@ -1,19 +1,21 @@
 services:
-  eaglebot:
-    build: ./server
-    restart: unless-stopped
-    env_file:
-      - ./server/.env
-    depends_on:
-      - redis
-    expose:
-      - "3001"
-
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
-      - redis-data:/data
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    networks:
+      - eaglenet
+
+  eaglebot:
+    build: ./server
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - redis
+    networks:
+      - eaglenet
 
   caddy:
     image: caddy:2-alpine
@@ -23,10 +25,17 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - eaglebot
+    networks:
+      - eaglenet
 
 volumes:
-  redis-data:
-  caddy-data:
-  caddy-config:
+  redis_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  eaglenet:
