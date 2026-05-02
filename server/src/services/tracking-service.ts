@@ -14,6 +14,8 @@ interface LeadInfo {
   utmCampaign?: string;
   utmContent?: string;
   utmTerm?: string;
+  telegramUserId?: number;
+  botId?: string;
 }
 
 interface TrackPurchaseParams {
@@ -109,13 +111,25 @@ async function loadClickContext(
   };
 }
 
+/**
+ * external_id estável: tg_user_id + bot_id (em texto, não hash — o CAPI hasheia).
+ * Mesmo lead que volta em outra campanha mantém o mesmo ID. Fallback pro UUID
+ * interno se não tiver telegramUserId (cobre eventos antigos).
+ */
+function buildExternalId(lead: LeadInfo): string {
+  if (lead.telegramUserId && lead.botId) {
+    return `tg_${lead.telegramUserId}_${lead.botId}`;
+  }
+  return lead.id;
+}
+
 /** Build user_data for Facebook from lead info + click context */
 function buildFbUserData(lead: LeadInfo, ctx: ClickContext) {
   const fbc = buildFbc(lead.fbclid, ctx.clickTime ?? null);
   return {
     fbc: fbc || undefined,
     fbp: ctx.fbp,
-    externalId: lead.id,
+    externalId: buildExternalId(lead),
     firstName: lead.firstName,
     email: lead.email || undefined,
     phone: lead.phone || undefined,
@@ -240,15 +254,17 @@ export class TrackingService {
 
   /**
    * InitiateCheckout — fires when Pix code is generated.
-   *
-   * Facebook CAPI is DISABLED for this event by design. Sending low-EMQ
-   * intermediate events (no email/phone/CPF) was polluting the pixel's
-   * quality score and degrading delivery. Only Purchase is sent to FB.
-   * Utmify still receives the waiting_payment order elsewhere.
+   * CAPI ativo: usa fbp/fbc/IP/UA do clique original como user_data.
+   * Não há Pixel JS aqui (Pix é entregue dentro do Telegram), então
+   * o evento entra só pelo CAPI mas com os identificadores do clique.
    */
   async trackCheckout(params: TrackCheckoutParams): Promise<void> {
+    const eventId = `ic_${params.leadId}_${Date.now()}`;
+    const eventTime = Math.floor(Date.now() / 1000);
     const { lead } = params;
-    await this.saveEvent({
+    const amountInCurrency = params.amount / 100;
+
+    const dbEventId = await this.saveEvent({
       tenantId: params.tenantId,
       leadId: params.leadId,
       botId: params.botId,
@@ -260,8 +276,28 @@ export class TrackingService {
         amount: params.amount,
         currency: params.currency,
         product_id: params.productId,
+        event_id: eventId,
       },
     });
+
+    const clickCtx = await loadClickContext(this.db, lead.tid);
+
+    const fbSent = await this.facebookCapi.sendInitiateCheckoutEvent({
+      eventTime,
+      eventId,
+      userData: buildFbUserData(lead, clickCtx),
+      value: amountInCurrency,
+      currency: params.currency,
+      contentIds: params.productId ? [params.productId] : undefined,
+      contentName: params.productName,
+    });
+
+    if (dbEventId) {
+      await this.db
+        .from("tracking_events")
+        .update({ sent_to_facebook: fbSent })
+        .eq("id", dbEventId);
+    }
   }
 
   /**

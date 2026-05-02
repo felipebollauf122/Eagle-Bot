@@ -209,6 +209,8 @@ export async function processPaymentCallback(botId: string | null, body: Record<
       utmCampaign: typedLead.utm_campaign ?? undefined,
       utmContent: typedLead.utm_content ?? undefined,
       utmTerm: typedLead.utm_term ?? undefined,
+      telegramUserId: typedLead.telegram_user_id,
+      botId: typedLead.bot_id,
     },
     customerDocument: String(typedLead.state.document ?? ""),
     productId: product?.id ?? transaction.product_id,

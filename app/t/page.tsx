@@ -12,6 +12,38 @@ function generateFbp(): string {
   return `fb.1.${Date.now()}.${rand}`;
 }
 
+interface CapiUserDataInput {
+  fbp?: string;
+  fbc?: string;
+  clientIp: string | null;
+  userAgent: string | null;
+}
+
+function buildCapiUserData(input: CapiUserDataInput): Record<string, unknown> {
+  const ud: Record<string, unknown> = {};
+  if (input.fbp) ud.fbp = input.fbp;
+  if (input.fbc) ud.fbc = input.fbc;
+  if (input.clientIp) ud.client_ip_address = input.clientIp;
+  if (input.userAgent) ud.client_user_agent = input.userAgent;
+  return ud;
+}
+
+async function sendCapiEvent(
+  pixelId: string,
+  accessToken: string,
+  eventData: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await fetch(`https://graph.facebook.com/v21.0/${pixelId}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: [eventData], access_token: accessToken }),
+    });
+  } catch (err) {
+    console.error("[t-page] CAPI fetch failed:", err);
+  }
+}
+
 function extractClientIp(hdrs: Headers): string | null {
   const candidates = [
     hdrs.get("cf-connecting-ip"),
@@ -77,6 +109,10 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
   const clickTime = Date.now();
   const tid = `tid_${nanoid(16)}`;
 
+  // event_id compartilhado entre Pixel JS (browser) e CAPI (server) — Meta deduplica
+  const pageViewEventId = `pv_${tid}`;
+  const viewContentEventId = `vc_${tid}`;
+
   await supabase.from("tracking_events").insert({
     tenant_id: typedBot.tenant_id,
     bot_id: typedBot.id,
@@ -97,10 +133,38 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
       client_ip: clientIp,
       user_agent: userAgent,
       source_url: sourceUrl,
+      pageview_event_id: pageViewEventId,
+      viewcontent_event_id: viewContentEventId,
     },
     sent_to_facebook: false,
     sent_to_utmify: false,
   });
+
+  // CAPI server-side: PageView + ViewContent deduplicados com o Pixel JS
+  // (fire-and-forget — não bloqueia a renderização da página)
+  if (typedBot.facebook_pixel_id && typedBot.facebook_access_token) {
+    const eventTime = Math.floor(clickTime / 1000);
+    const fbc = fbclid ? `fb.1.${clickTime}.${fbclid}` : "";
+    void Promise.all([
+      sendCapiEvent(typedBot.facebook_pixel_id, typedBot.facebook_access_token, {
+        event_name: "PageView",
+        event_time: eventTime,
+        event_id: pageViewEventId,
+        action_source: "website",
+        event_source_url: sourceUrl ?? undefined,
+        user_data: buildCapiUserData({ fbp, fbc, clientIp, userAgent }),
+      }),
+      sendCapiEvent(typedBot.facebook_pixel_id, typedBot.facebook_access_token, {
+        event_name: "ViewContent",
+        event_time: eventTime,
+        event_id: viewContentEventId,
+        action_source: "website",
+        event_source_url: sourceUrl ?? undefined,
+        user_data: buildCapiUserData({ fbp, fbc, clientIp, userAgent }),
+        custom_data: { content_name: typedBot.bot_username ?? "bot" },
+      }),
+    ]).catch((err) => console.error("[t-page] CAPI dedup error:", err));
+  }
 
   const telegramDeepLink = `https://t.me/${typedBot.bot_username}?start=${tid}`;
   const displayName = typedBot.redirect_display_name?.trim() || `@${typedBot.bot_username}`;
@@ -367,6 +431,19 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
           __html: `try{var e=document.cookie.split('; ').find(function(c){return c.indexOf('_fbp=')===0});if(!e){document.cookie='_fbp=${fbp}; path=/; max-age=7776000; SameSite=Lax';}}catch(e){}`,
         }}
       />
+
+      {typedBot.facebook_pixel_id && (
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '${typedBot.facebook_pixel_id}');
+fbq('track', 'PageView', {}, { eventID: '${pageViewEventId}' });
+fbq('track', 'ViewContent', { content_name: ${JSON.stringify(typedBot.bot_username ?? "bot")} }, { eventID: '${viewContentEventId}' });
+            `,
+          }}
+        />
+      )}
     </div>
   );
 }

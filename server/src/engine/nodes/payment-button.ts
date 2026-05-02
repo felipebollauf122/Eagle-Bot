@@ -280,6 +280,8 @@ export async function handleProductPaymentCallback(
       utmCampaign: ctx.lead.utm_campaign ?? undefined,
       utmContent: ctx.lead.utm_content ?? undefined,
       utmTerm: ctx.lead.utm_term ?? undefined,
+      telegramUserId: ctx.lead.telegram_user_id,
+      botId: ctx.lead.bot_id,
     };
 
     // Facebook InitiateCheckout event
