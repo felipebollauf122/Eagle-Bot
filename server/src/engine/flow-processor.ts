@@ -162,6 +162,7 @@ export class FlowProcessor {
     startNodeId?: string,
     isBlack?: boolean,
     deleteAfterMinutes?: number | null,
+    persistPosition: boolean = true,
   ): Promise<{ blocked?: boolean }> {
     const deletionDelay =
       deleteAfterMinutes && deleteAfterMinutes > 0
@@ -220,35 +221,50 @@ export class FlowProcessor {
       }
 
       if (result.delaySeconds && result.delaySeconds > 0 && result.nextNodeId) {
-        await this.leadService.updatePosition(lead.id, flow.id, result.nextNodeId);
-        await this.delayQueue.addDelayedJob(
-          {
-            leadId: lead.id,
-            flowId: flow.id,
-            nodeId: result.nextNodeId,
-            botId: flow.bot_id,
-            tenantId: flow.tenant_id,
-            chatId,
-          },
-          result.delaySeconds,
-        );
+        if (persistPosition) {
+          await this.leadService.updatePosition(lead.id, flow.id, result.nextNodeId);
+          await this.delayQueue.addDelayedJob(
+            {
+              leadId: lead.id,
+              flowId: flow.id,
+              nodeId: result.nextNodeId,
+              botId: flow.bot_id,
+              tenantId: flow.tenant_id,
+              chatId,
+            },
+            result.delaySeconds,
+          );
+        } else {
+          // Remarketing: não persiste posição (flow.id não está em `flows`).
+          // Delay vira sleep inline curto pra não bloquear o worker.
+          const ms = Math.min(result.delaySeconds * 1000, 30_000);
+          await new Promise((r) => setTimeout(r, ms));
+          currentNodeId = result.nextNodeId;
+          continue;
+        }
         return {};
       }
 
       if (result.nextNodeId === "wait") {
-        await this.leadService.updatePosition(lead.id, flow.id, node.id);
+        if (persistPosition) {
+          await this.leadService.updatePosition(lead.id, flow.id, node.id);
+        }
         return {};
       }
 
       if (result.nextNodeId === null) {
-        await this.leadService.updatePosition(lead.id, null, null);
+        if (persistPosition) {
+          await this.leadService.updatePosition(lead.id, null, null);
+        }
         return {};
       }
 
       currentNodeId = result.nextNodeId;
     }
 
-    await this.leadService.updatePosition(lead.id, null, null);
+    if (persistPosition) {
+      await this.leadService.updatePosition(lead.id, null, null);
+    }
     return {};
   }
 

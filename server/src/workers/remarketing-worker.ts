@@ -220,6 +220,7 @@ async function processLeadRemarketing(
     undefined,
     false,
     nextFlow.delete_after_minutes,
+    false, // persistPosition=false: flow.id pertence a remarketing_flows, não a flows
   );
 
   // If user blocked the bot, mark lead so we skip them in future remarketing
