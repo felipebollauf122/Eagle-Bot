@@ -316,13 +316,14 @@ export function startWorkers(): void {
   }, 60_000);
 
   // EvPay status poller — fallback caso o webhook automático do Yvepay
-  // não dispare (já vimos que isso acontece). Roda a cada 30s
-  // consultando o status real de cada transação pendente direto na API.
+  // não dispare. Roda a cada 5s, mas só consulta cada transação no
+  // intervalo apropriado por idade (5s pra recém-criadas, 30s/2min
+  // pras mais antigas) — ver workers/evpay-poller.ts.
   setInterval(() => {
     pollEvpayPendingTransactions(supabase).catch((err) =>
       console.error("[evpay-poller] Error:", err)
     );
-  }, 30_000);
+  }, 5_000);
 
   console.log("BullMQ workers + black deletion + remarketing + evpay-poller started");
 }
