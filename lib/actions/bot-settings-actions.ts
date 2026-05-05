@@ -13,6 +13,7 @@ interface BotSettings {
   sigilopay_secret_key: string;
   evpay_api_key: string;
   evpay_project_id: string;
+  collect_email_after_payment: boolean;
   tracking_mode: "redirect" | "prelander";
   prelander_headline: string;
   prelander_description: string;
@@ -56,6 +57,7 @@ export async function saveBotSettings(botId: string, settings: BotSettings) {
       sigilopay_secret_key: settings.sigilopay_secret_key || null,
       evpay_api_key: settings.evpay_api_key || null,
       evpay_project_id: settings.evpay_project_id || null,
+      collect_email_after_payment: settings.collect_email_after_payment,
       tracking_mode: settings.tracking_mode,
       prelander_headline: settings.prelander_headline || null,
       prelander_description: settings.prelander_description || null,

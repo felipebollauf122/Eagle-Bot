@@ -3,6 +3,7 @@ import { supabase } from "../db.js";
 import { TelegramApi } from "../telegram/api.js";
 import { LeadService } from "../services/lead-service.js";
 import { addPurchaseEmailTimeoutJob } from "../queue.js";
+import { completePurchase } from "../services/purchase-completer.js";
 import { botCache } from "../cache.js";
 import { config } from "../config.js";
 import type { Lead } from "../engine/types.js";
@@ -17,6 +18,10 @@ interface Bot {
   utmify_api_key: string | null;
   sigilopay_public_key: string | null;
   sigilopay_secret_key: string | null;
+  evpay_api_key: string | null;
+  evpay_project_id: string | null;
+  payment_gateway: string | null;
+  collect_email_after_payment: boolean | null;
 }
 
 interface Transaction {
@@ -159,37 +164,44 @@ export async function processPaymentCallback(botId: string | null, body: Record<
 
   const typedLead = lead as Lead;
 
-  const telegram = new TelegramApi(bot.telegram_token, { protectContent: bot.protect_content });
+  // Atualiza state: paid = true (mantém o resto)
+  const baseState = { ...typedLead.state, paid: true };
+  await leadService.updateState(typedLead.id, baseState);
+  typedLead.state = baseState;
 
-  // Update lead state: paid = true + marca pending email (necessário pro Facebook EMQ)
-  const updatedState = {
-    ...typedLead.state,
-    paid: true,
-    pending_email_tx_id: transaction.id,
-  };
-  await leadService.updateState(typedLead.id, updatedState);
-  typedLead.state = updatedState;
+  // Toggle: bot pode pular a coleta de email e disparar Purchase imediato.
+  if (bot.collect_email_after_payment) {
+    // Modo "pedir email": marca pending_email_tx_id, pede email no Telegram,
+    // agenda timeout. Purchase + Utmify só disparam quando o cliente
+    // responder (ou após 2h).
+    const stateWithPending = { ...baseState, pending_email_tx_id: transaction.id };
+    await leadService.updateState(typedLead.id, stateWithPending);
+    typedLead.state = stateWithPending;
 
-  // Pede o email do cliente. O Purchase só é disparado depois que ele responder
-  // (ou após 2h via worker de timeout). Isso aumenta o EMQ do pixel.
-  await telegram.sendMessage({
-    chatId: typedLead.telegram_user_id,
-    text:
-      "✅ <b>Pagamento confirmado!</b>\n\n" +
-      "Antes de liberar seu acesso, preciso do seu <b>e-mail válido</b> para registrar sua compra.\n\n" +
-      "⚠️ Use um e-mail que você acessa de verdade — em caso de qualquer problema com o produto " +
-      "(não receber link, suporte, atualizações), é por ele que você vai ser atendido. " +
-      "E-mail errado significa ficar sem suporte.\n\n" +
-      "📩 <b>Manda seu e-mail aí:</b>",
-  });
+    const telegram = new TelegramApi(bot.telegram_token, { protectContent: bot.protect_content });
+    await telegram.sendMessage({
+      chatId: typedLead.telegram_user_id,
+      text:
+        "✅ <b>Pagamento confirmado!</b>\n\n" +
+        "Antes de liberar seu acesso, preciso do seu <b>e-mail válido</b> para registrar sua compra.\n\n" +
+        "⚠️ Use um e-mail que você acessa de verdade — em caso de qualquer problema com o produto " +
+        "(não receber link, suporte, atualizações), é por ele que você vai ser atendido. " +
+        "E-mail errado significa ficar sem suporte.\n\n" +
+        "📩 <b>Manda seu e-mail aí:</b>",
+    });
 
-  console.log(`[payment-webhook] Asked email from lead ${typedLead.id} (tx ${transaction.id})`);
+    console.log(`[payment-webhook] Asked email from lead ${typedLead.id} (tx ${transaction.id})`);
 
-  // Agenda timeout de 2h — se user não responder, dispara Purchase mesmo sem email
-  await addPurchaseEmailTimeoutJob(
-    { leadId: typedLead.id, transactionId: transaction.id },
-    2 * 60 * 60, // 2 horas
-  );
+    await addPurchaseEmailTimeoutJob(
+      { leadId: typedLead.id, transactionId: transaction.id },
+      2 * 60 * 60,
+    );
+    return;
+  }
+
+  // Modo direto: dispara Purchase + libera produto na hora (sem coletar email).
+  console.log(`[payment-webhook] collect_email disabled — completing purchase immediately for lead ${typedLead.id}`);
+  await completePurchase(supabase, bot, typedLead, transaction);
 }
 
 /**

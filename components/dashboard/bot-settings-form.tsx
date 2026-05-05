@@ -42,6 +42,7 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
   const [sigiloSecretKey, setSigiloSecretKey] = useState(bot.sigilopay_secret_key ?? "");
   const [evpayApiKey, setEvpayApiKey] = useState(bot.evpay_api_key ?? "");
   const [evpayProjectId, setEvpayProjectId] = useState(bot.evpay_project_id ?? "");
+  const [collectEmail, setCollectEmail] = useState(bot.collect_email_after_payment ?? false);
   const [trackingMode, setTrackingMode] = useState<"redirect" | "prelander">(bot.tracking_mode ?? "redirect");
   const [headline, setHeadline] = useState(bot.prelander_headline ?? "");
   const [description, setDescription] = useState(bot.prelander_description ?? "");
@@ -62,6 +63,7 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
         sigilopay_secret_key: sigiloSecretKey,
         evpay_api_key: evpayApiKey,
         evpay_project_id: evpayProjectId,
+        collect_email_after_payment: collectEmail,
         tracking_mode: trackingMode,
         prelander_headline: headline,
         prelander_description: description,
@@ -441,6 +443,26 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
               </p>
             </>
           )}
+
+          <div className="pt-4 border-t border-white/10">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={collectEmail}
+                onChange={(e) => setCollectEmail(e.target.checked)}
+                className="mt-1 w-4 h-4 rounded border-white/20 bg-black/30 accent-(--accent)"
+              />
+              <div>
+                <div className="text-white text-sm font-medium">Pedir e-mail após pagamento</div>
+                <div className="text-white/50 text-xs mt-0.5 leading-relaxed">
+                  Quando ligado, após o pagamento o bot envia uma mensagem pedindo
+                  o e-mail do cliente e só libera o produto / dispara Purchase no
+                  Facebook quando o cliente responder (ou após 2h via timeout).
+                  Quando desligado, libera o produto e dispara Purchase imediatamente.
+                </div>
+              </div>
+            </label>
+          </div>
         </div>
       </div>
 
