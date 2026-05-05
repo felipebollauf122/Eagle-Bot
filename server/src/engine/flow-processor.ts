@@ -428,21 +428,29 @@ export class FlowProcessor {
     if (callbackData.startsWith("pay:")) {
       const productId = callbackData.substring(4);
       const paymentNodeId = String(lead.state.pending_payment_node_id ?? "");
+      const bundleId = String(lead.state.pending_bundle_id ?? "");
 
-      if (!productId || !paymentNodeId || !lead.current_flow_id) return;
+      if (!productId || !paymentNodeId || !bundleId) {
+        console.log(`[pay callback] Missing state: productId=${productId}, paymentNodeId=${paymentNodeId}, bundleId=${bundleId}`);
+        await telegram.sendMessage({
+          chatId,
+          text: "Sua sessão expirou. Volte e selecione o produto novamente.",
+        });
+        return;
+      }
 
-      const typedFlow = await this.getFlowById(lead.current_flow_id);
-      if (!typedFlow) return;
-
-      const paymentNode = typedFlow.flow_data.nodes.find((n) => n.id === paymentNodeId);
-      if (!paymentNode) return;
-
-      const nodeEdges = typedFlow.flow_data.edges.filter((e) => e.source === paymentNodeId);
+      // Constrói node sintético direto do state (suporta tanto flows visuais
+      // quanto flows de remarketing, que não estão em `flows`).
+      const paymentNode = {
+        id: paymentNodeId,
+        type: "payment_button",
+        data: { bundle_id: bundleId },
+      } as unknown as NodeContext["node"];
 
       const ctx: NodeContext = {
         node: paymentNode,
         lead,
-        edges: nodeEdges,
+        edges: [],
         telegram,
         chatId,
       };
@@ -463,10 +471,13 @@ export class FlowProcessor {
           productId,
         );
 
-        // Queue black flow messages for deletion
-        if (isBlack && result.messageIds) {
-          for (const msgId of result.messageIds) {
-            await this.queueMessageDeletion(typedFlow.bot_id, telegram.botToken, chatId, msgId, BLACK_DELETE_DELAY_MINUTES);
+        // Queue black flow messages for deletion (apenas em flows visuais black)
+        if (isBlack && result.messageIds && lead.current_flow_id) {
+          const typedFlow = await this.getFlowById(lead.current_flow_id);
+          if (typedFlow) {
+            for (const msgId of result.messageIds) {
+              await this.queueMessageDeletion(typedFlow.bot_id, telegram.botToken, chatId, msgId, BLACK_DELETE_DELAY_MINUTES);
+            }
           }
         }
 

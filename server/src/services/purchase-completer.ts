@@ -101,7 +101,17 @@ export async function completePurchase(
   // Retoma o flow na edge "paid"
   const paymentNodeId = String(lead.state.pending_payment_node_id ?? "");
   if (!paymentNodeId || !transaction.flow_id) {
-    console.log(`[purchase-completer] No pending_payment_node_id or flow_id, skipping flow resume`);
+    // Sem flow visual pra retomar (típico de pagamentos via remarketing).
+    // Manda mensagem genérica de confirmação pra não deixar o cliente no escuro.
+    console.log(`[purchase-completer] No flow to resume — sending fallback confirmation`);
+    const telegramFallback = new TelegramApi(bot.telegram_token, { protectContent: bot.protect_content });
+    await telegramFallback.sendMessage({
+      chatId: lead.telegram_user_id,
+      text:
+        "✅ <b>Pagamento confirmado e acesso liberado!</b>\n\n" +
+        "Em instantes você recebe os detalhes do produto. " +
+        "Qualquer problema, é só falar com a gente por aqui.",
+    });
     return;
   }
 

@@ -242,12 +242,13 @@ export async function handleProductPaymentCallback(
     return { nextNodeId: "wait" };
   }
 
-  // Create transaction record
+  // Create transaction record. flow_id pode ser null (ex: pagamento gerado
+  // dentro de um flow de remarketing, que não está em `flows`).
   const { data: txRecord } = await db.from("transactions").insert({
     tenant_id: ctx.lead.tenant_id,
     lead_id: ctx.lead.id,
     bot_id: ctx.lead.bot_id,
-    flow_id: ctx.lead.current_flow_id,
+    flow_id: ctx.lead.current_flow_id ?? null,
     product_id: typedProduct.id,
     gateway: "sigilopay",
     external_id: payment.transactionId,
