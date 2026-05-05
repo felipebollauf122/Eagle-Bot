@@ -95,7 +95,17 @@ export class EvPay implements PaymentGateway {
       rawBody,
     ];
     const data =
-      candidates.find((c) => c && typeof c === "object" && (c.id || c.transactionId)) ?? {};
+      candidates.find(
+        (c) => c && typeof c === "object" && (c.id || c.transactionId),
+      ) ?? {};
+
+    // Yvepay/EvPay retorna PIX em data.methodData.pix.qrCode.emv (BRcode)
+    // e a imagem do QR em data.methodData.pix.qrCode.image
+    const methodData = (data as { methodData?: Record<string, unknown> }).methodData ?? {};
+    const pixContainer =
+      ((methodData as { pix?: Record<string, unknown> }).pix ?? {}) as Record<string, unknown>;
+    const qrCode =
+      ((pixContainer as { qrCode?: Record<string, unknown> }).qrCode ?? {}) as Record<string, unknown>;
 
     const transactionId = String(
       (data as { id?: unknown }).id ??
@@ -104,12 +114,15 @@ export class EvPay implements PaymentGateway {
     );
     const status = String((data as { status?: unknown }).status ?? "PENDING");
     const pixCode = String(
+      (qrCode as { emv?: unknown }).emv ??
       (data as { pixQrCode?: unknown }).pixQrCode ??
       (data as { pix_qr_code?: unknown }).pix_qr_code ??
       (data as { pixCode?: unknown }).pixCode ??
       (data as { brCode?: unknown }).brCode ??
       "",
     );
+    const pixImage =
+      String((qrCode as { image?: unknown }).image ?? "") || null;
     const externalId = String(
       (data as { externalId?: unknown }).externalId ??
       (data as { external_id?: unknown }).external_id ??
@@ -131,7 +144,7 @@ export class EvPay implements PaymentGateway {
       transactionId,
       status,
       pixCode,
-      pixImage: null,
+      pixImage,
       orderId: externalId || transactionId,
     };
   }
