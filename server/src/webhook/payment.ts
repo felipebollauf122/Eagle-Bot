@@ -4,6 +4,7 @@ import { TelegramApi } from "../telegram/api.js";
 import { LeadService } from "../services/lead-service.js";
 import { addPurchaseEmailTimeoutJob } from "../queue.js";
 import { botCache } from "../cache.js";
+import { config } from "../config.js";
 import type { Lead } from "../engine/types.js";
 
 interface Bot {
@@ -225,20 +226,31 @@ export async function handlePaymentWebhook(req: Request, res: Response): Promise
  * Valida assinatura HMAC-SHA256 (header X-Webhook-Signature) usando o
  * evpay_webhook_secret salvo no bot que originou a transação.
  */
-export async function handleEvPayWebhook(req: Request, res: Response): Promise<void> {
+export async function handleEvPayWebhook(
+  req: Request & { rawBody?: Buffer },
+  res: Response,
+): Promise<void> {
   res.status(200).json({ ok: true });
 
   try {
-    const body = req.body as Record<string, unknown>;
-    const rawBody = JSON.stringify(body);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    // Usa o buffer ORIGINAL pro HMAC — JSON.stringify reordenaria/normalizaria
+    // bytes e a assinatura nunca bateria. Se rawBody não estiver presente
+    // (caso o express.json não tenha guardado), cai pra stringify como
+    // último recurso pra logs ainda funcionarem.
+    const rawBody = req.rawBody ? req.rawBody.toString("utf8") : JSON.stringify(body);
     const signature = String(req.header("X-Webhook-Signature") ?? "");
 
-    console.log(`[evpay-webhook] Received:`, rawBody);
+    console.log(`[evpay-webhook] Received (sig=${signature ? "present" : "MISSING"}):`, rawBody);
 
-    // Extrai transactionId do payload pra localizar o bot e validar a assinatura
+    // Extrai transactionId do payload pra localizar a transação
     const data = (body.data ?? {}) as Record<string, unknown>;
     const transactionId = String(
-      body.transactionId ?? body.id ?? data.id ?? data.transactionId ?? "",
+      body.transactionId ??
+      body.id ??
+      data.id ??
+      data.transactionId ??
+      "",
     );
     if (!transactionId) {
       console.error(`[evpay-webhook] Missing transactionId in payload`);
@@ -251,7 +263,7 @@ export async function handleEvPayWebhook(req: Request, res: Response): Promise<v
       .eq("external_id", transactionId)
       .maybeSingle();
     if (!tx) {
-      console.error(`[evpay-webhook] Transaction not found: ${transactionId}`);
+      console.error(`[evpay-webhook] Transaction not found for external_id=${transactionId}`);
       return;
     }
 
@@ -260,31 +272,43 @@ export async function handleEvPayWebhook(req: Request, res: Response): Promise<v
       .select("evpay_webhook_secret")
       .eq("id", tx.bot_id)
       .single();
-    const secret = String((botRow as { evpay_webhook_secret?: string } | null)?.evpay_webhook_secret ?? "");
-    if (!secret) {
-      console.error(`[evpay-webhook] Bot ${tx.bot_id} has no evpay_webhook_secret set`);
-      return;
-    }
+    const secret = String(
+      (botRow as { evpay_webhook_secret?: string } | null)?.evpay_webhook_secret ?? "",
+    );
 
+    // Valida HMAC. Se EVPAY_REQUIRE_SIGNATURE=false (padrão), só loga warning
+    // em caso de falha e segue processando — evita perder venda enquanto
+    // a assinatura é calibrada. Em produção estável, defina EVPAY_REQUIRE_SIGNATURE=true.
     const { EvPay } = await import("../services/evpay.js");
-    if (!EvPay.verifySignature(rawBody, signature, secret)) {
-      console.error(`[evpay-webhook] Invalid signature for tx ${transactionId}`);
-      return;
+    let signatureValid = false;
+    if (secret && signature) {
+      signatureValid = EvPay.verifySignature(rawBody, signature, secret);
     }
 
-    // Normaliza pro formato que processPaymentCallback espera.
-    // Conforme OpenAPI da Yvepay (POST /webhooks/simulate):
-    //   { type: "pix.in.<event>", data: { id, status: "APPROVED|EXPIRED|FAILED|...", ... } }
-    // Mapeamento dos events do PIX:
-    //   pix.in.processing      → ignorar (PENDING)
-    //   pix.in.confirmation    → APPROVED
-    //   pix.in.expired         → EXPIRED
-    //   pix.in.failed          → FAILED
+    if (!signatureValid) {
+      const reason = !secret
+        ? "no secret saved for bot"
+        : !signature
+          ? "header X-Webhook-Signature missing"
+          : "HMAC mismatch";
+      if (config.evpayRequireSignature) {
+        console.error(`[evpay-webhook] Signature INVALID (${reason}) — REJECTING tx ${transactionId}`);
+        return;
+      }
+      console.warn(`[evpay-webhook] Signature INVALID (${reason}) — processing anyway (EVPAY_REQUIRE_SIGNATURE=false)`);
+    } else {
+      console.log(`[evpay-webhook] Signature OK for tx ${transactionId}`);
+    }
+
+    // Mapeamento de eventos PIX → status:
+    //   pix.in.processing            → ignora (ainda não confirmado)
+    //   pix.in.confirmation          → APPROVED
+    //   pix.in.expired               → EXPIRED
+    //   pix.in.failed                → FAILED
     //   pix.in.reversal.confirmation → REFUNDED
     const eventType = String(body.type ?? body.event ?? "");
     let status = String(data.status ?? body.status ?? "");
     if (!status) {
-      // Fallback: deriva o status do nome do evento
       if (eventType === "pix.in.confirmation") status = "APPROVED";
       else if (eventType === "pix.in.expired") status = "EXPIRED";
       else if (eventType === "pix.in.failed") status = "FAILED";

@@ -408,8 +408,35 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
                 <label className="input-label">Project ID</label>
                 <input type="text" value={evpayProjectId} onChange={(e) => setEvpayProjectId(e.target.value)} placeholder="cmop4ynuc..." className="input" />
               </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const serverUrl = (process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "").replace(/\/+$/, "");
+                    const r = await fetch(`${serverUrl}/api/bots/${bot.id}/setup-evpay-webhook`, { method: "POST" });
+                    const j = await r.json();
+                    alert(r.ok ? `Webhook registrado: ${j.webhook_url}` : `Erro: ${j.error}`);
+                  }}
+                  className="px-3 py-1.5 rounded border border-white/15 text-white/80 text-xs hover:bg-white/5"
+                >
+                  Re-registrar webhook no Yvepay
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const serverUrl = (process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "").replace(/\/+$/, "");
+                    const r = await fetch(`${serverUrl}/api/bots/${bot.id}/evpay-webhook-status`);
+                    const j = await r.json();
+                    alert(JSON.stringify(j, null, 2));
+                  }}
+                  className="px-3 py-1.5 rounded border border-white/15 text-white/80 text-xs hover:bg-white/5"
+                >
+                  Verificar status
+                </button>
+              </div>
               <p className="text-xs text-white/40">
-                O webhook é registrado automaticamente no Yvepay quando você salva.
+                Salvar registra o webhook automaticamente. Use os botões acima
+                pra re-registrar ou conferir se o Yvepay tem nosso URL cadastrado.
                 Evento monitorado: <code>pix.in.confirmation</code>.
               </p>
             </>

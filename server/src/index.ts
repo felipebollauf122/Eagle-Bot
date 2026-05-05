@@ -38,8 +38,16 @@ app.use((req, res, next) => {
   next();
 });
 
-// Parse JSON bodies (Telegram sends JSON webhooks)
-app.use(express.json());
+// Parse JSON bodies (Telegram sends JSON webhooks).
+// 'verify' guarda o buffer original em req.rawBody — necessário pra
+// validar HMAC do webhook do Yvepay/EvPay (precisa do byte-stream cru).
+app.use(
+  express.json({
+    verify: (req: express.Request & { rawBody?: Buffer }, _res, buf) => {
+      req.rawBody = buf;
+    },
+  }),
+);
 
 // Health check
 app.get("/health", (_req, res) => {
@@ -88,6 +96,51 @@ app.post("/api/bots/:botId/register-webhook", async (req, res) => {
   } catch (error) {
     console.error("Failed to register webhook:", error);
     res.status(500).json({ error: "Failed to register webhook" });
+  }
+});
+
+// Diagnóstico do webhook EvPay — lista os webhooks cadastrados no projeto
+// pra você confirmar se o nosso URL realmente está lá.
+app.get("/api/bots/:botId/evpay-webhook-status", async (req, res) => {
+  try {
+    const { botId } = req.params;
+    const { data: bot } = await supabase
+      .from("bots")
+      .select("evpay_api_key, evpay_project_id, evpay_webhook_id, evpay_webhook_secret")
+      .eq("id", botId)
+      .single();
+    if (!bot) {
+      res.status(404).json({ error: "Bot not found" });
+      return;
+    }
+    const typedBot = bot as {
+      evpay_api_key: string | null;
+      evpay_project_id: string | null;
+      evpay_webhook_id: string | null;
+      evpay_webhook_secret: string | null;
+    };
+    if (!typedBot.evpay_api_key || !typedBot.evpay_project_id) {
+      res.status(400).json({ error: "EvPay credentials missing" });
+      return;
+    }
+    const { EvPay } = await import("./services/evpay.js");
+    const evpay = new EvPay(typedBot.evpay_api_key, typedBot.evpay_project_id);
+    const webhooks = await evpay.listWebhooks();
+    const expectedUrl = `${config.baseWebhookUrl}/webhook/evpay`;
+    const matching = webhooks.find((w) => w.url === expectedUrl);
+    res.json({
+      success: true,
+      expectedUrl,
+      hasSecret: !!typedBot.evpay_webhook_secret,
+      savedWebhookId: typedBot.evpay_webhook_id,
+      registeredAtYvepay: !!matching,
+      matchingWebhook: matching ?? null,
+      allWebhooks: webhooks,
+    });
+  } catch (error) {
+    console.error("Failed to fetch EvPay webhook status:", error);
+    const msg = error instanceof Error ? error.message : "unknown";
+    res.status(500).json({ error: msg });
   }
 });
 

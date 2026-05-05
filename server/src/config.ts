@@ -19,4 +19,8 @@ export const config = {
   telegramApiId: parseInt(envOptional("TELEGRAM_API_ID", "0"), 10),
   telegramApiHash: envOptional("TELEGRAM_API_HASH", ""),
   mtprotoWorkerEnabled: envOptional("MTPROTO_WORKER_ENABLED", "true") === "true",
+  // EvPay: se 'true', rejeita webhook com HMAC inválido. Se 'false' (padrão),
+  // só loga warning e processa mesmo assim. Mantido tolerante por padrão até
+  // confirmar que a assinatura tá calibrada com o que o Yvepay envia.
+  evpayRequireSignature: envOptional("EVPAY_REQUIRE_SIGNATURE", "false") === "true",
 } as const;

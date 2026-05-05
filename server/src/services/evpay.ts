@@ -190,6 +190,30 @@ export class EvPay implements PaymentGateway {
   }
 
   /**
+   * Lista webhooks registrados no projeto. Útil pra diagnóstico —
+   * checa se o nosso URL realmente está cadastrado.
+   */
+  async listWebhooks(): Promise<Array<{ id: string; url: string; events: string[]; isActive: boolean }>> {
+    if (!this.isConfigured()) throw new Error("EvPay não configurado");
+    const response = await fetch(
+      `${this.baseUrl}/projects/${this.projectId}/webhooks`,
+      {
+        method: "GET",
+        headers: { "X-API-Key": this.apiKey },
+      },
+    );
+    const body = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      data?: Array<{ id: string; url: string; events: string[]; isActive: boolean }>;
+      message?: string;
+    };
+    if (!response.ok || !body.success) {
+      throw new Error(`EvPay listWebhooks erro (${response.status}): ${body.message ?? response.statusText}`);
+    }
+    return body.data ?? [];
+  }
+
+  /**
    * Valida o header X-Webhook-Signature (HMAC-SHA256 hex do raw body com o secret).
    */
   static verifySignature(rawBody: string, signature: string, secret: string): boolean {
