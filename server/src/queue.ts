@@ -11,6 +11,7 @@ import { botCache, flowByIdCache } from "./cache.js";
 
 import type { Flow } from "./engine/flow-processor.js";
 import { processRemarketing } from "./workers/remarketing-worker.js";
+import { pollEvpayPendingTransactions } from "./workers/evpay-poller.js";
 
 interface Bot {
   id: string;
@@ -314,5 +315,14 @@ export function startWorkers(): void {
     );
   }, 60_000);
 
-  console.log("BullMQ workers + black deletion + remarketing started");
+  // EvPay status poller — fallback caso o webhook automático do Yvepay
+  // não dispare (já vimos que isso acontece). Roda a cada 30s
+  // consultando o status real de cada transação pendente direto na API.
+  setInterval(() => {
+    pollEvpayPendingTransactions(supabase).catch((err) =>
+      console.error("[evpay-poller] Error:", err)
+    );
+  }, 30_000);
+
+  console.log("BullMQ workers + black deletion + remarketing + evpay-poller started");
 }

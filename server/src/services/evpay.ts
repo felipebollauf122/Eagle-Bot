@@ -190,6 +190,32 @@ export class EvPay implements PaymentGateway {
   }
 
   /**
+   * Consulta o status atual de uma transação. Usado pelo poller pra
+   * detectar pagamentos quando o webhook automático não dispara.
+   */
+  async getPaymentStatus(transactionId: string): Promise<{ status: string } | null> {
+    if (!this.isConfigured()) throw new Error("EvPay não configurado");
+    const response = await fetch(
+      `${this.baseUrl}/projects/${this.projectId}/payments/${transactionId}`,
+      {
+        method: "GET",
+        headers: { "X-API-Key": this.apiKey },
+      },
+    );
+    if (response.status === 404) return null;
+    const body = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      data?: { status?: string };
+      message?: string;
+    };
+    if (!response.ok || !body.success || !body.data) {
+      console.error(`[evpay] getPaymentStatus(${transactionId}) failed (${response.status}): ${body.message ?? response.statusText}`);
+      return null;
+    }
+    return { status: String(body.data.status ?? "") };
+  }
+
+  /**
    * Lista webhooks registrados no projeto. Útil pra diagnóstico —
    * checa se o nosso URL realmente está cadastrado.
    */
