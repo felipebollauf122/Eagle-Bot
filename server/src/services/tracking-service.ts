@@ -112,15 +112,21 @@ async function loadClickContext(
 }
 
 /**
- * external_id estável: tg_user_id + bot_id (em texto, não hash — o CAPI hasheia).
- * Mesmo lead que volta em outra campanha mantém o mesmo ID. Fallback pro UUID
- * interno se não tiver telegramUserId (cobre eventos antigos).
+ * external_ids — array com múltiplos formatos do mesmo usuário.
+ * Cada string é hasheada SHA-256 pelo CAPI. Mais IDs = mais chance
+ * do índice do Meta encontrar match → EMQ sobe.
  */
-function buildExternalId(lead: LeadInfo): string {
+function buildExternalIds(lead: LeadInfo): string[] {
+  const ids = new Set<string>();
   if (lead.telegramUserId && lead.botId) {
-    return `tg_${lead.telegramUserId}_${lead.botId}`;
+    ids.add(`tg_${lead.telegramUserId}_${lead.botId}`);
   }
-  return lead.id;
+  if (lead.telegramUserId) {
+    ids.add(`tg_${lead.telegramUserId}`);
+    ids.add(String(lead.telegramUserId));
+  }
+  if (lead.id) ids.add(lead.id);
+  return Array.from(ids);
 }
 
 /** Build user_data for Facebook from lead info + click context */
@@ -129,7 +135,7 @@ function buildFbUserData(lead: LeadInfo, ctx: ClickContext) {
   return {
     fbc: fbc || undefined,
     fbp: ctx.fbp,
-    externalId: buildExternalId(lead),
+    externalIds: buildExternalIds(lead),
     firstName: lead.firstName,
     email: lead.email || undefined,
     phone: lead.phone || undefined,
@@ -194,11 +200,17 @@ export class TrackingService {
       ? [{ id: params.productId, quantity: 1, item_price: amountInCurrency }]
       : undefined;
 
-    // Facebook CAPI — Purchase event (with full user data for max EMQ)
+    // Facebook CAPI — Purchase event (with full user data for max EMQ).
+    // subscriptionId = transaction_id reaproveitado num campo extra
+    // do user_data → conta como sinal adicional no EMQ.
+    const userData = {
+      ...buildFbUserData(lead, clickCtx),
+      subscriptionId: params.transactionId,
+    };
     const fbSent = await this.facebookCapi.sendPurchaseEvent({
       eventTime,
       eventId,
-      userData: buildFbUserData(lead, clickCtx),
+      userData,
       value: amountInCurrency,
       currency: params.currency,
       contentIds: params.productId ? [params.productId] : undefined,
@@ -254,17 +266,13 @@ export class TrackingService {
 
   /**
    * InitiateCheckout — fires when Pix code is generated.
-   * CAPI ativo: usa fbp/fbc/IP/UA do clique original como user_data.
-   * Não há Pixel JS aqui (Pix é entregue dentro do Telegram), então
-   * o evento entra só pelo CAPI mas com os identificadores do clique.
+   * Apenas persiste no DB; CAPI desligado por decisão de produto
+   * (estratégia "Purchase-only" para concentrar todo o sinal no
+   * único evento que importa pra otimização da campanha).
    */
   async trackCheckout(params: TrackCheckoutParams): Promise<void> {
-    const eventId = `ic_${params.leadId}_${Date.now()}`;
-    const eventTime = Math.floor(Date.now() / 1000);
     const { lead } = params;
-    const amountInCurrency = params.amount / 100;
-
-    const dbEventId = await this.saveEvent({
+    await this.saveEvent({
       tenantId: params.tenantId,
       leadId: params.leadId,
       botId: params.botId,
@@ -276,28 +284,8 @@ export class TrackingService {
         amount: params.amount,
         currency: params.currency,
         product_id: params.productId,
-        event_id: eventId,
       },
     });
-
-    const clickCtx = await loadClickContext(this.db, lead.tid);
-
-    const fbSent = await this.facebookCapi.sendInitiateCheckoutEvent({
-      eventTime,
-      eventId,
-      userData: buildFbUserData(lead, clickCtx),
-      value: amountInCurrency,
-      currency: params.currency,
-      contentIds: params.productId ? [params.productId] : undefined,
-      contentName: params.productName,
-    });
-
-    if (dbEventId) {
-      await this.db
-        .from("tracking_events")
-        .update({ sent_to_facebook: fbSent })
-        .eq("id", dbEventId);
-    }
   }
 
   /**

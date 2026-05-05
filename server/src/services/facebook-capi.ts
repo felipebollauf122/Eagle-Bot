@@ -3,13 +3,14 @@ import { createHash } from "crypto";
 interface UserData {
   fbc?: string;
   fbp?: string;
-  externalId?: string;
+  externalIds?: string[];
   firstName?: string;
   email?: string;
   phone?: string;
   country?: string;
   clientIp?: string;
   clientUserAgent?: string;
+  subscriptionId?: string;
 }
 
 interface PurchaseContent {
@@ -87,7 +88,11 @@ export class FacebookCapi {
 
     if (params.fbc) ud.fbc = params.fbc;
     if (params.fbp) ud.fbp = params.fbp;
-    if (params.externalId) ud.external_id = this.hash(params.externalId);
+    if (params.externalIds && params.externalIds.length > 0) {
+      // Meta aceita array de external_ids — testa match em cada um
+      ud.external_id = params.externalIds.map((id) => this.hash(id));
+    }
+    if (params.subscriptionId) ud.subscription_id = params.subscriptionId;
     if (params.firstName) ud.fn = this.hash(params.firstName);
     // Only hash email/phone if they contain real data (not empty/placeholder)
     if (params.email && params.email.length > 0 && !params.email.endsWith("@eaglebot.temp")) {
