@@ -19,6 +19,9 @@ interface Bot {
   protect_content: boolean;
   sigilopay_public_key: string | null;
   sigilopay_secret_key: string | null;
+  facebook_pixel_id: string | null;
+  facebook_access_token: string | null;
+  utmify_api_key: string | null;
 }
 
 const connection = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
@@ -64,6 +67,27 @@ export async function addPaymentTimeoutJob(data: PaymentTimeoutData, delaySecond
     delay: delaySeconds * 1000,
     attempts: 2,
     backoff: { type: "exponential", delay: 5000 },
+  });
+}
+
+// Purchase email timeout: dispara Purchase mesmo sem email após X segundos
+interface PurchaseEmailTimeoutData {
+  leadId: string;
+  transactionId: string;
+}
+
+export const purchaseEmailTimeoutQueue = new Queue<PurchaseEmailTimeoutData>("purchase-email-timeout", {
+  connection,
+});
+
+export async function addPurchaseEmailTimeoutJob(
+  data: PurchaseEmailTimeoutData,
+  delaySeconds: number,
+): Promise<void> {
+  await purchaseEmailTimeoutQueue.add("flush-purchase", data, {
+    delay: delaySeconds * 1000,
+    attempts: 2,
+    backoff: { type: "exponential", delay: 10_000 },
   });
 }
 
@@ -223,6 +247,48 @@ export function startWorkers(): void {
     {
       connection,
       concurrency: 10,
+    },
+  );
+
+  // Purchase email timeout — dispara Purchase mesmo sem email
+  new Worker<PurchaseEmailTimeoutData>(
+    "purchase-email-timeout",
+    async (job: Job<PurchaseEmailTimeoutData>) => {
+      const { leadId, transactionId } = job.data;
+
+      // Lê estado atual do lead — se já não tá esperando email pra essa
+      // transação, é porque o user respondeu no tempo (já foi processado)
+      const lead = await leadService.getById(leadId);
+      if (!lead) return;
+      const pending = String(lead.state.pending_email_tx_id ?? "");
+      if (pending !== transactionId) {
+        console.log(`[purchase-email-timeout] Lead ${leadId} no longer pending for tx ${transactionId} — skip`);
+        return;
+      }
+
+      const { data: tx } = await supabase
+        .from("transactions")
+        .select("*")
+        .eq("id", transactionId)
+        .single();
+      if (!tx) return;
+
+      let bot = botCache.get(tx.bot_id) as Bot | undefined;
+      if (!bot) {
+        const { data } = await supabase.from("bots").select("*").eq("id", tx.bot_id).single();
+        if (!data) return;
+        bot = data as Bot;
+        botCache.set(tx.bot_id, data);
+      }
+      const freshBot = await ensureBotPaymentKeys(tx.bot_id, bot);
+
+      console.log(`[purchase-email-timeout] 2h elapsed, dispatching Purchase WITHOUT email for lead ${leadId}`);
+      const { completePurchase } = await import("./services/purchase-completer.js");
+      await completePurchase(supabase, freshBot, lead, tx);
+    },
+    {
+      connection,
+      concurrency: 4,
     },
   );
 

@@ -294,6 +294,41 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         }).catch((err) => console.error("[tracking] trackLead error:", err));
       }
 
+      // Intercepta: lead que pagou e está esperando email (capturado pelo
+      // payment-webhook após confirmação do Pix). Mensagens que não sejam
+      // /start são tratadas como tentativa de envio do email.
+      const pendingEmailTxId = String(lead.state.pending_email_tx_id ?? "");
+      if (pendingEmailTxId && !isStartCommand) {
+        const { isValidEmail, completePurchase } = await import("../services/purchase-completer.js");
+        if (isValidEmail(text)) {
+          const email = text.trim().toLowerCase();
+          const newState = { ...lead.state, email };
+          delete (newState as Record<string, unknown>).pending_email_tx_id;
+          await leadService.updateState(lead.id, newState);
+          lead.state = newState;
+
+          const { data: tx } = await supabase
+            .from("transactions")
+            .select("*")
+            .eq("id", pendingEmailTxId)
+            .single();
+          if (tx) {
+            console.log(`[email-collector] Lead ${lead.id} sent valid email — dispatching Purchase`);
+            await completePurchase(supabase, typedBot, lead, tx);
+          }
+          return;
+        }
+        // Email inválido — pede de novo
+        await telegram.sendMessage({
+          chatId,
+          text:
+            "❌ <b>E-mail inválido.</b>\n\n" +
+            "Manda no formato correto, tipo <code>seunome@gmail.com</code>.\n\n" +
+            "Use um e-mail real — você vai precisar dele se tiver qualquer problema com o produto.",
+        });
+        return;
+      }
+
       // On /start, route to the correct named flow
       if (isStartCommand && flowName) {
         await processor.handleStartCommand(typedBot, lead, telegram, chatId, text, flowName);

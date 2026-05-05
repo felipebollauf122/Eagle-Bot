@@ -1,16 +1,9 @@
 import type { Request, Response } from "express";
 import { supabase } from "../db.js";
 import { TelegramApi } from "../telegram/api.js";
-import { FlowProcessor } from "../engine/flow-processor.js";
 import { LeadService } from "../services/lead-service.js";
-import { TrackingService } from "../services/tracking-service.js";
-import { FacebookCapi } from "../services/facebook-capi.js";
-import { UtmifyService } from "../services/utmify.js";
-import { SigiloPay } from "../services/sigilopay.js";
-import { addDelayedJob } from "../queue.js";
-import { config } from "../config.js";
-import { botCache, flowByIdCache } from "../cache.js";
-import type { Flow } from "../engine/flow-processor.js";
+import { addPurchaseEmailTimeoutJob } from "../queue.js";
+import { botCache } from "../cache.js";
 import type { Lead } from "../engine/types.js";
 
 interface Bot {
@@ -165,94 +158,37 @@ export async function processPaymentCallback(botId: string | null, body: Record<
 
   const typedLead = lead as Lead;
 
-  // Notify user that payment was confirmed
   const telegram = new TelegramApi(bot.telegram_token, { protectContent: bot.protect_content });
-  await telegram.sendMessage({
-    chatId: typedLead.telegram_user_id,
-    text: "✅ Pagamento confirmado! Obrigado pela compra.",
-  });
 
-  console.log(`[payment-webhook] ✅ Sent confirmation to lead ${typedLead.id} (chat ${typedLead.telegram_user_id})`);
-
-  // Update lead state: paid = true
-  const updatedState = { ...typedLead.state, paid: true };
+  // Update lead state: paid = true + marca pending email (necessário pro Facebook EMQ)
+  const updatedState = {
+    ...typedLead.state,
+    paid: true,
+    pending_email_tx_id: transaction.id,
+  };
   await leadService.updateState(typedLead.id, updatedState);
   typedLead.state = updatedState;
 
-  // Fire purchase tracking (fire-and-forget)
-  const facebookCapi = new FacebookCapi(bot.facebook_pixel_id ?? "", bot.facebook_access_token ?? "");
-  const utmify = new UtmifyService(bot.utmify_api_key ?? "");
-  const trackingService = new TrackingService(supabase, facebookCapi, utmify);
+  // Pede o email do cliente. O Purchase só é disparado depois que ele responder
+  // (ou após 2h via worker de timeout). Isso aumenta o EMQ do pixel.
+  await telegram.sendMessage({
+    chatId: typedLead.telegram_user_id,
+    text:
+      "✅ <b>Pagamento confirmado!</b>\n\n" +
+      "Antes de liberar seu acesso, preciso do seu <b>e-mail válido</b> para registrar sua compra.\n\n" +
+      "⚠️ Use um e-mail que você acessa de verdade — em caso de qualquer problema com o produto " +
+      "(não receber link, suporte, atualizações), é por ele que você vai ser atendido. " +
+      "E-mail errado significa ficar sem suporte.\n\n" +
+      "📩 <b>Manda seu e-mail aí:</b>",
+  });
 
-  const { data: product } = await supabase
-    .from("products")
-    .select("id, name")
-    .eq("id", transaction.product_id)
-    .single();
+  console.log(`[payment-webhook] Asked email from lead ${typedLead.id} (tx ${transaction.id})`);
 
-  trackingService.trackPurchase({
-    tenantId: transaction.tenant_id,
-    leadId: transaction.lead_id,
-    botId: transaction.bot_id,
-    transactionId: transaction.id,
-    amount: transaction.amount,
-    currency: transaction.currency,
-    lead: {
-      id: typedLead.id,
-      tid: typedLead.tid,
-      fbclid: typedLead.fbclid,
-      firstName: typedLead.first_name,
-      email: String(typedLead.state.email ?? ""),
-      phone: String(typedLead.state.phone ?? ""),
-      utmSource: typedLead.utm_source ?? undefined,
-      utmMedium: typedLead.utm_medium ?? undefined,
-      utmCampaign: typedLead.utm_campaign ?? undefined,
-      utmContent: typedLead.utm_content ?? undefined,
-      utmTerm: typedLead.utm_term ?? undefined,
-      telegramUserId: typedLead.telegram_user_id,
-      botId: typedLead.bot_id,
-    },
-    customerDocument: String(typedLead.state.document ?? ""),
-    productId: product?.id ?? transaction.product_id,
-    productName: product?.name ?? "Produto",
-  }).catch((e) => console.error("[payment-webhook] Tracking error:", e));
-
-  // Resume flow on "paid" edge
-  const paymentNodeId = String(typedLead.state.pending_payment_node_id ?? "");
-  if (paymentNodeId && transaction.flow_id) {
-    let flow: Flow | null = flowByIdCache.get(transaction.flow_id) as unknown as Flow | null;
-    if (!flow) {
-      const { data } = await supabase.from("flows").select("*").eq("id", transaction.flow_id).single();
-      if (data) {
-        flow = data as Flow;
-        flowByIdCache.set(transaction.flow_id, data);
-      }
-    }
-
-    if (flow) {
-      const paidEdge = flow.flow_data.edges.find(
-        (e) => e.source === paymentNodeId && e.sourceHandle === "paid",
-      );
-
-      if (paidEdge) {
-        console.log(`[payment-webhook] Resuming flow on "paid" edge → node ${paidEdge.target}`);
-        const sigiloPay = new SigiloPay(bot.sigilopay_public_key ?? "", bot.sigilopay_secret_key ?? "");
-        const processor = new FlowProcessor(supabase, leadService, { addDelayedJob }, {
-          sigiloPay,
-          baseWebhookUrl: config.baseWebhookUrl,
-        });
-        await processor.executeFlow(
-          flow,
-          typedLead,
-          telegram,
-          typedLead.telegram_user_id,
-          paidEdge.target,
-        );
-      } else {
-        console.log(`[payment-webhook] No "paid" edge found for node ${paymentNodeId}`);
-      }
-    }
-  }
+  // Agenda timeout de 2h — se user não responder, dispara Purchase mesmo sem email
+  await addPurchaseEmailTimeoutJob(
+    { leadId: typedLead.id, transactionId: transaction.id },
+    2 * 60 * 60, // 2 horas
+  );
 }
 
 /**
