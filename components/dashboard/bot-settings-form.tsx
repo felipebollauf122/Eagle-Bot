@@ -402,15 +402,15 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
             <>
               <div>
                 <label className="input-label">API Key (X-API-Key)</label>
-                <input type="text" value={evpayApiKey} onChange={(e) => setEvpayApiKey(e.target.value)} placeholder="ev_sk_..." className="input" />
+                <input type="text" value={evpayApiKey} onChange={(e) => setEvpayApiKey(e.target.value)} placeholder="fp_sk_..." className="input" />
               </div>
               <div>
                 <label className="input-label">Project ID</label>
-                <input type="text" value={evpayProjectId} onChange={(e) => setEvpayProjectId(e.target.value)} placeholder="cuid..." className="input" />
+                <input type="text" value={evpayProjectId} onChange={(e) => setEvpayProjectId(e.target.value)} placeholder="cmop4ynuc..." className="input" />
               </div>
               <p className="text-xs text-white/40">
-                O webhook é registrado automaticamente no EvPay quando você salva.
-                Eventos monitorados: <code>pix.in.confirmation</code>.
+                O webhook é registrado automaticamente no Yvepay quando você salva.
+                Evento monitorado: <code>pix.in.confirmation</code>.
               </p>
             </>
           )}

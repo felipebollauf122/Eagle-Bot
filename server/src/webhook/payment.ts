@@ -109,7 +109,7 @@ export async function processPaymentCallback(botId: string | null, body: Record<
   let newStatus: string;
   if (["OK", "COMPLETED", "APPROVED", "SUCCESS", "PAID"].includes(normalizedStatus)) {
     newStatus = "approved";
-  } else if (["FAILED", "REJECTED", "ERROR"].includes(normalizedStatus)) {
+  } else if (["FAILED", "REJECTED", "ERROR", "EXPIRED"].includes(normalizedStatus)) {
     newStatus = "refused";
   } else if (["CANCELED", "REFUNDED", "CANCELLED"].includes(normalizedStatus)) {
     newStatus = "refunded";
@@ -272,13 +272,26 @@ export async function handleEvPayWebhook(req: Request, res: Response): Promise<v
       return;
     }
 
-    // Normaliza pro mesmo formato que o processPaymentCallback espera
-    const event = String(body.event ?? "");
-    const status =
-      event === "pix.in.confirmation"
-        ? "PAID"
-        : String(body.status ?? data.status ?? "");
+    // Normaliza pro formato que processPaymentCallback espera.
+    // Conforme OpenAPI da Yvepay (POST /webhooks/simulate):
+    //   { type: "pix.in.<event>", data: { id, status: "APPROVED|EXPIRED|FAILED|...", ... } }
+    // Mapeamento dos events do PIX:
+    //   pix.in.processing      → ignorar (PENDING)
+    //   pix.in.confirmation    → APPROVED
+    //   pix.in.expired         → EXPIRED
+    //   pix.in.failed          → FAILED
+    //   pix.in.reversal.confirmation → REFUNDED
+    const eventType = String(body.type ?? body.event ?? "");
+    let status = String(data.status ?? body.status ?? "");
+    if (!status) {
+      // Fallback: deriva o status do nome do evento
+      if (eventType === "pix.in.confirmation") status = "APPROVED";
+      else if (eventType === "pix.in.expired") status = "EXPIRED";
+      else if (eventType === "pix.in.failed") status = "FAILED";
+      else if (eventType === "pix.in.reversal.confirmation") status = "REFUNDED";
+    }
 
+    console.log(`[evpay-webhook] type=${eventType} txn=${transactionId} status=${status}`);
     await processPaymentCallback(tx.bot_id, { transactionId, status });
   } catch (error) {
     console.error(`[evpay-webhook] Error:`, error);
