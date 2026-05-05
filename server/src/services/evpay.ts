@@ -77,23 +77,62 @@ export class EvPay implements PaymentGateway {
       },
     );
 
-    const body = (await response.json().catch(() => ({}))) as EvPayCreatePaymentResponse;
+    const rawBody = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    console.log(`[evpay] response status=${response.status} body=${JSON.stringify(rawBody)}`);
 
-    if (!response.ok || !body.success || !body.data) {
-      const msg = body.message ?? response.statusText ?? "erro desconhecido";
+    if (!response.ok) {
+      const msg =
+        (rawBody as { message?: string }).message ?? response.statusText ?? "erro desconhecido";
       console.error(`[evpay] createPixPayment failed (${response.status}):`, msg);
       throw new Error(`EvPay erro (${response.status}): ${msg}`);
     }
 
-    console.log(`[evpay] PIX created, txn ${body.data.id}`);
+    // Lê de várias formas: {data: {...}}, ou flat ({...}), ou {payment: {...}} etc.
+    const candidates: Array<Record<string, unknown> | undefined> = [
+      (rawBody as { data?: Record<string, unknown> }).data,
+      (rawBody as { payment?: Record<string, unknown> }).payment,
+      (rawBody as { transaction?: Record<string, unknown> }).transaction,
+      rawBody,
+    ];
+    const data =
+      candidates.find((c) => c && typeof c === "object" && (c.id || c.transactionId)) ?? {};
+
+    const transactionId = String(
+      (data as { id?: unknown }).id ??
+      (data as { transactionId?: unknown }).transactionId ??
+      "",
+    );
+    const status = String((data as { status?: unknown }).status ?? "PENDING");
+    const pixCode = String(
+      (data as { pixQrCode?: unknown }).pixQrCode ??
+      (data as { pix_qr_code?: unknown }).pix_qr_code ??
+      (data as { pixCode?: unknown }).pixCode ??
+      (data as { brCode?: unknown }).brCode ??
+      "",
+    );
+    const externalId = String(
+      (data as { externalId?: unknown }).externalId ??
+      (data as { external_id?: unknown }).external_id ??
+      "",
+    );
+
+    if (!transactionId) {
+      console.error(`[evpay] response missing transaction id. body:`, JSON.stringify(rawBody));
+      throw new Error(`EvPay devolveu resposta sem id de transação. Verifique a chave/projeto.`);
+    }
+    if (!pixCode) {
+      console.error(`[evpay] response missing pix code. body:`, JSON.stringify(rawBody));
+      throw new Error(`EvPay devolveu resposta sem código PIX.`);
+    }
+
+    console.log(`[evpay] PIX created, txn ${transactionId}`);
 
     return {
-      transactionId: body.data.id,
-      status: body.data.status,
-      pixCode: body.data.pixQrCode,
-      // EvPay não devolve imagem pronta; payment-button gera via api.qrserver
+      transactionId,
+      status,
+      pixCode,
       pixImage: null,
-      orderId: body.data.externalId || body.data.id,
+      orderId: externalId || transactionId,
     };
   }
 
