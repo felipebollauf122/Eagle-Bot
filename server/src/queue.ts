@@ -5,8 +5,8 @@ import { supabase } from "./db.js";
 import { TelegramApi } from "./telegram/api.js";
 import { FlowProcessor } from "./engine/flow-processor.js";
 import { LeadService } from "./services/lead-service.js";
-import { SigiloPay } from "./services/sigilopay.js";
 import { ensureBotPaymentKeys } from "./services/bot-loader.js";
+import { buildGateway } from "./services/gateway-factory.js";
 import { botCache, flowByIdCache } from "./cache.js";
 
 import type { Flow } from "./engine/flow-processor.js";
@@ -17,8 +17,11 @@ interface Bot {
   tenant_id: string;
   telegram_token: string;
   protect_content: boolean;
+  payment_gateway: string | null;
   sigilopay_public_key: string | null;
   sigilopay_secret_key: string | null;
+  evpay_api_key: string | null;
+  evpay_project_id: string | null;
   facebook_pixel_id: string | null;
   facebook_access_token: string | null;
   utmify_api_key: string | null;
@@ -164,12 +167,12 @@ export function startWorkers(): void {
 
       const freshBot = await ensureBotPaymentKeys(botId, bot);
       const telegram = new TelegramApi(freshBot.telegram_token, { protectContent: freshBot.protect_content });
-      const sigiloPay = new SigiloPay(freshBot.sigilopay_public_key ?? "", freshBot.sigilopay_secret_key ?? "");
+      const { gateway, kind: gatewayKind } = buildGateway(freshBot);
       const processor = new FlowProcessor(
         supabase,
         leadService,
         { addDelayedJob },
-        { sigiloPay, baseWebhookUrl: config.baseWebhookUrl },
+        { gateway, gatewayKind, baseWebhookUrl: config.baseWebhookUrl },
       );
 
       const isBlack = lead.active_flow_name === "_black_flow";
@@ -233,12 +236,12 @@ export function startWorkers(): void {
 
       const freshBot = await ensureBotPaymentKeys(botId, bot as Bot);
       const telegram = new TelegramApi(freshBot.telegram_token, { protectContent: freshBot.protect_content });
-      const sigiloPay = new SigiloPay(freshBot.sigilopay_public_key ?? "", freshBot.sigilopay_secret_key ?? "");
+      const { gateway, kind: gatewayKind } = buildGateway(freshBot);
       const processor = new FlowProcessor(
         supabase,
         leadService,
         { addDelayedJob },
-        { sigiloPay, baseWebhookUrl: config.baseWebhookUrl },
+        { gateway, gatewayKind, baseWebhookUrl: config.baseWebhookUrl },
       );
 
       const isBlack = lead.active_flow_name === "_black_flow";

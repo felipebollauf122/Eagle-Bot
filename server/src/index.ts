@@ -1,7 +1,7 @@
 import express from "express";
 import { config } from "./config.js";
 import { handleTelegramWebhook } from "./webhook/telegram.js";
-import { handlePaymentWebhookGlobal, handlePaymentWebhook } from "./webhook/payment.js";
+import { handlePaymentWebhookGlobal, handlePaymentWebhook, handleEvPayWebhook } from "./webhook/payment.js";
 import { startWorkers } from "./queue.js";
 import { startMtprotoWorker } from "./workers/mtproto-worker.js";
 import { enqueueMtproto, type MtprotoJobData } from "./queue-mtproto.js";
@@ -50,6 +50,8 @@ app.get("/health", (_req, res) => {
 app.post("/webhook/payment", handlePaymentWebhookGlobal);
 // Legacy per-bot endpoint (kept for existing webhooks already registered at SigiloPay)
 app.post("/webhook/payment/:botId", handlePaymentWebhook);
+// EvPay payment webhook — global, valida HMAC com secret salvo por bot
+app.post("/webhook/evpay", handleEvPayWebhook);
 
 // Telegram webhook endpoint
 app.post("/webhook/:botId", handleTelegramWebhook);
@@ -86,6 +88,63 @@ app.post("/api/bots/:botId/register-webhook", async (req, res) => {
   } catch (error) {
     console.error("Failed to register webhook:", error);
     res.status(500).json({ error: "Failed to register webhook" });
+  }
+});
+
+// Setup EvPay webhook for a bot (called from dashboard when EvPay credentials are saved)
+app.post("/api/bots/:botId/setup-evpay-webhook", async (req, res) => {
+  try {
+    const { botId } = req.params;
+
+    const { data: bot } = await supabase
+      .from("bots")
+      .select("id, evpay_api_key, evpay_project_id, evpay_webhook_secret")
+      .eq("id", botId)
+      .single();
+    if (!bot) {
+      res.status(404).json({ error: "Bot not found" });
+      return;
+    }
+
+    const typedBot = bot as {
+      id: string;
+      evpay_api_key: string | null;
+      evpay_project_id: string | null;
+      evpay_webhook_secret: string | null;
+    };
+
+    if (!typedBot.evpay_api_key || !typedBot.evpay_project_id) {
+      res.status(400).json({ error: "EvPay credentials missing" });
+      return;
+    }
+
+    // Gera (ou reusa) o secret do webhook — mínimo 16 chars exigido pelo EvPay
+    let secret = typedBot.evpay_webhook_secret;
+    if (!secret || secret.length < 16) {
+      const { randomBytes } = await import("crypto");
+      secret = `whsec_${randomBytes(24).toString("hex")}`;
+    }
+
+    const { EvPay } = await import("./services/evpay.js");
+    const evpay = new EvPay(typedBot.evpay_api_key, typedBot.evpay_project_id);
+    const webhookUrl = `${config.baseWebhookUrl}/webhook/evpay`;
+
+    const { webhookId } = await evpay.registerWebhook(webhookUrl, secret);
+
+    await supabase
+      .from("bots")
+      .update({
+        evpay_webhook_secret: secret,
+        evpay_webhook_id: webhookId,
+      })
+      .eq("id", botId);
+
+    botCache.invalidate(botId);
+    res.json({ success: true, webhook_url: webhookUrl, webhook_id: webhookId });
+  } catch (error) {
+    console.error("Failed to setup EvPay webhook:", error);
+    const msg = error instanceof Error ? error.message : "unknown";
+    res.status(500).json({ error: `setup failed: ${msg}` });
   }
 });
 

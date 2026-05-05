@@ -1,0 +1,155 @@
+import { createHmac } from "crypto";
+import type {
+  CreatePixPaymentParams,
+  PaymentGateway,
+  PixPaymentResult,
+} from "./payment-gateway.js";
+
+interface EvPayCreatePaymentResponse {
+  success: boolean;
+  data?: {
+    id: string;
+    status: string;
+    amount: number;
+    feeAmount: number;
+    netAmount: number;
+    splitAmount: number;
+    externalId: string;
+    paymentMethod: string;
+    pixQrCode: string;
+    boletoUrl: string;
+    boletoBarcode: string;
+    createdAt: string;
+  };
+  message?: string;
+}
+
+interface EvPayCreateWebhookResponse {
+  success: boolean;
+  data?: { id: string };
+  message?: string;
+}
+
+export class EvPay implements PaymentGateway {
+  private baseUrl = "https://www.yvepay.com/api";
+
+  constructor(
+    private apiKey: string,
+    private projectId: string,
+  ) {}
+
+  isConfigured(): boolean {
+    return Boolean(this.apiKey && this.projectId);
+  }
+
+  async createPixPayment(params: CreatePixPaymentParams): Promise<PixPaymentResult> {
+    if (!this.isConfigured()) {
+      throw new Error(
+        "EvPay não configurado. Vá em Configurações do bot e preencha a API Key e o Project ID.",
+      );
+    }
+
+    const payload: Record<string, unknown> = {
+      method: "PIX",
+      amount: params.amount,
+      customerName: params.clientName,
+      customerEmail: params.clientEmail,
+      customerPhone: params.clientPhone,
+      customerDocument: params.clientDocument,
+      description: `Pedido ${params.identifier}`,
+    };
+
+    if (params.metadata && Object.keys(params.metadata).length > 0) {
+      payload.metadata = params.metadata;
+    }
+
+    console.log(`[evpay] Creating PIX payment for project ${this.projectId}`);
+
+    const response = await fetch(
+      `${this.baseUrl}/projects/${this.projectId}/payments`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": this.apiKey,
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+
+    const body = (await response.json().catch(() => ({}))) as EvPayCreatePaymentResponse;
+
+    if (!response.ok || !body.success || !body.data) {
+      const msg = body.message ?? response.statusText ?? "erro desconhecido";
+      console.error(`[evpay] createPixPayment failed (${response.status}):`, msg);
+      throw new Error(`EvPay erro (${response.status}): ${msg}`);
+    }
+
+    console.log(`[evpay] PIX created, txn ${body.data.id}`);
+
+    return {
+      transactionId: body.data.id,
+      status: body.data.status,
+      pixCode: body.data.pixQrCode,
+      // EvPay não devolve imagem pronta; payment-button gera via api.qrserver
+      pixImage: null,
+      orderId: body.data.externalId || body.data.id,
+    };
+  }
+
+  /**
+   * Registra (ou re-registra) o webhook no EvPay.
+   * Idempotente: se já existir webhook com a mesma URL, EvPay devolve 409;
+   * tratamos como sucesso.
+   */
+  async registerWebhook(url: string, secret: string): Promise<{ webhookId: string | null }> {
+    if (!this.isConfigured()) {
+      throw new Error("EvPay não configurado");
+    }
+
+    const response = await fetch(
+      `${this.baseUrl}/projects/${this.projectId}/webhooks`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": this.apiKey,
+        },
+        body: JSON.stringify({
+          name: "EagleBot",
+          url,
+          secret,
+          events: ["pix.in.confirmation"],
+        }),
+      },
+    );
+
+    if (response.status === 409) {
+      console.log(`[evpay] Webhook already registered for ${url} (409 — ok)`);
+      return { webhookId: null };
+    }
+
+    const body = (await response.json().catch(() => ({}))) as EvPayCreateWebhookResponse;
+    if (!response.ok || !body.success) {
+      const msg = body.message ?? response.statusText ?? "erro desconhecido";
+      throw new Error(`EvPay webhook erro (${response.status}): ${msg}`);
+    }
+    return { webhookId: body.data?.id ?? null };
+  }
+
+  /**
+   * Valida o header X-Webhook-Signature (HMAC-SHA256 hex do raw body com o secret).
+   */
+  static verifySignature(rawBody: string, signature: string, secret: string): boolean {
+    if (!signature || !secret) return false;
+    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+    // Compare por tamanho primeiro pra evitar timing attack óbvio; pra caso de uso
+    // de webhook é suficiente.
+    if (expected.length !== signature.length) return false;
+    let mismatch = 0;
+    for (let i = 0; i < expected.length; i++) {
+      mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+    }
+    return mismatch === 0;
+  }
+}

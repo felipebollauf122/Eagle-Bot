@@ -7,8 +7,8 @@ import { TrackingService } from "../services/tracking-service.js";
 import { FacebookCapi } from "../services/facebook-capi.js";
 import { UtmifyService } from "../services/utmify.js";
 import { addDelayedJob } from "../queue.js";
-import { SigiloPay } from "../services/sigilopay.js";
 import { ensureBotPaymentKeys } from "../services/bot-loader.js";
+import { buildGateway } from "../services/gateway-factory.js";
 import { config } from "../config.js";
 import { botCache } from "../cache.js";
 
@@ -19,8 +19,11 @@ interface Bot {
   is_active: boolean;
   black_enabled: boolean;
   protect_content: boolean;
+  payment_gateway: string | null;
   sigilopay_public_key: string | null;
   sigilopay_secret_key: string | null;
+  evpay_api_key: string | null;
+  evpay_project_id: string | null;
   facebook_pixel_id: string | null;
   facebook_access_token: string | null;
   utmify_api_key: string | null;
@@ -208,9 +211,10 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
     const typedBot = await ensureBotPaymentKeys(botId, bot);
     const telegram = new TelegramApi(typedBot.telegram_token, { protectContent: typedBot.protect_content });
-    const sigiloPay = new SigiloPay(typedBot.sigilopay_public_key ?? "", typedBot.sigilopay_secret_key ?? "");
+    const { gateway, kind: gatewayKind } = buildGateway(typedBot);
     const processor = new FlowProcessor(supabase, leadService, { addDelayedJob }, {
-      sigiloPay,
+      gateway,
+      gatewayKind,
       baseWebhookUrl: config.baseWebhookUrl,
     });
 

@@ -14,7 +14,7 @@ const sections = [
   { key: "info", label: "Informacoes do Bot", desc: "Status e configuracao geral", icon: "M13 2L3 14h9l-1 8 10-12h-9l1-8z", color: "var(--accent)" },
   { key: "facebook", label: "Facebook Ads", desc: "Pixel e Conversions API", icon: "M22 12h-4l-3 9L9 3l-3 9H2", color: "var(--cyan)" },
   { key: "utmify", label: "Utmify", desc: "Integracao de tracking", icon: "M22 12h-4l-3 9L9 3l-3 9H2", color: "var(--purple)" },
-  { key: "sigilo", label: "Poseidon Pay (Pix)", desc: "Gateway de pagamento", icon: "M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6", color: "var(--accent)" },
+  { key: "gateway", label: "Gateway de pagamento", desc: "Poseidon Pay ou EvPay", icon: "M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6", color: "var(--accent)" },
   { key: "tracking", label: "Pagina de Tracking", desc: "Configuracao da pagina de redirecionamento", icon: "M21 12a9 9 0 11-6.219-8.56", color: "var(--amber)" },
 ];
 
@@ -35,8 +35,13 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
   const [pixelId, setPixelId] = useState(bot.facebook_pixel_id ?? "");
   const [accessToken, setAccessToken] = useState(bot.facebook_access_token ?? "");
   const [utmifyKey, setUtmifyKey] = useState(bot.utmify_api_key ?? "");
+  const [paymentGateway, setPaymentGateway] = useState<"sigilopay" | "evpay">(
+    (bot.payment_gateway === "evpay" ? "evpay" : "sigilopay"),
+  );
   const [sigiloPublicKey, setSigiloPublicKey] = useState(bot.sigilopay_public_key ?? "");
   const [sigiloSecretKey, setSigiloSecretKey] = useState(bot.sigilopay_secret_key ?? "");
+  const [evpayApiKey, setEvpayApiKey] = useState(bot.evpay_api_key ?? "");
+  const [evpayProjectId, setEvpayProjectId] = useState(bot.evpay_project_id ?? "");
   const [trackingMode, setTrackingMode] = useState<"redirect" | "prelander">(bot.tracking_mode ?? "redirect");
   const [headline, setHeadline] = useState(bot.prelander_headline ?? "");
   const [description, setDescription] = useState(bot.prelander_description ?? "");
@@ -52,8 +57,11 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
         facebook_pixel_id: pixelId,
         facebook_access_token: accessToken,
         utmify_api_key: utmifyKey,
+        payment_gateway: paymentGateway,
         sigilopay_public_key: sigiloPublicKey,
         sigilopay_secret_key: sigiloSecretKey,
+        evpay_api_key: evpayApiKey,
+        evpay_project_id: evpayProjectId,
         tracking_mode: trackingMode,
         prelander_headline: headline,
         prelander_description: description,
@@ -360,19 +368,52 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
         </div>
       </div>
 
-      {/* Poseidon Pay */}
+      {/* Gateway de pagamento */}
       <div className="card p-6 mb-5 relative">
         <div className="absolute top-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-(--accent)/15 to-transparent" />
-        <SectionHeader sKey="sigilo" />
+        <SectionHeader sKey="gateway" />
         <div className="space-y-4">
           <div>
-            <label className="input-label">Chave Publica</label>
-            <input type="text" value={sigiloPublicKey} onChange={(e) => setSigiloPublicKey(e.target.value)} placeholder="pub_..." className="input" />
+            <label className="input-label">Gateway</label>
+            <select
+              value={paymentGateway}
+              onChange={(e) => setPaymentGateway(e.target.value as "sigilopay" | "evpay")}
+              className="input"
+            >
+              <option value="sigilopay">Poseidon Pay</option>
+              <option value="evpay">EvPay</option>
+            </select>
           </div>
-          <div>
-            <label className="input-label">Chave Secreta</label>
-            <input type="text" value={sigiloSecretKey} onChange={(e) => setSigiloSecretKey(e.target.value)} placeholder="sec_..." className="input" />
-          </div>
+
+          {paymentGateway === "sigilopay" && (
+            <>
+              <div>
+                <label className="input-label">Chave Publica</label>
+                <input type="text" value={sigiloPublicKey} onChange={(e) => setSigiloPublicKey(e.target.value)} placeholder="pub_..." className="input" />
+              </div>
+              <div>
+                <label className="input-label">Chave Secreta</label>
+                <input type="text" value={sigiloSecretKey} onChange={(e) => setSigiloSecretKey(e.target.value)} placeholder="sec_..." className="input" />
+              </div>
+            </>
+          )}
+
+          {paymentGateway === "evpay" && (
+            <>
+              <div>
+                <label className="input-label">API Key (X-API-Key)</label>
+                <input type="text" value={evpayApiKey} onChange={(e) => setEvpayApiKey(e.target.value)} placeholder="ev_sk_..." className="input" />
+              </div>
+              <div>
+                <label className="input-label">Project ID</label>
+                <input type="text" value={evpayProjectId} onChange={(e) => setEvpayProjectId(e.target.value)} placeholder="cuid..." className="input" />
+              </div>
+              <p className="text-xs text-white/40">
+                O webhook é registrado automaticamente no EvPay quando você salva.
+                Eventos monitorados: <code>pix.in.confirmation</code>.
+              </p>
+            </>
+          )}
         </div>
       </div>
 

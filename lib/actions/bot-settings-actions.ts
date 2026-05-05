@@ -8,14 +8,29 @@ interface BotSettings {
   facebook_pixel_id: string;
   facebook_access_token: string;
   utmify_api_key: string;
+  payment_gateway: "sigilopay" | "evpay";
   sigilopay_public_key: string;
   sigilopay_secret_key: string;
+  evpay_api_key: string;
+  evpay_project_id: string;
   tracking_mode: "redirect" | "prelander";
   prelander_headline: string;
   prelander_description: string;
   prelander_image_url: string;
   prelander_cta_text: string;
   redirect_display_name: string;
+}
+
+async function registerEvpayWebhookOnServer(botId: string): Promise<void> {
+  const serverUrl = (process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "http://localhost:3001").replace(/\/+$/, "");
+  try {
+    await fetch(`${serverUrl}/api/bots/${botId}/setup-evpay-webhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch {
+    // Silent fail — UI mostra erro só se realmente o pagamento der ruim
+  }
 }
 
 export async function saveBotSettings(botId: string, settings: BotSettings) {
@@ -36,8 +51,11 @@ export async function saveBotSettings(botId: string, settings: BotSettings) {
       facebook_pixel_id: settings.facebook_pixel_id || null,
       facebook_access_token: settings.facebook_access_token || null,
       utmify_api_key: settings.utmify_api_key || null,
+      payment_gateway: settings.payment_gateway,
       sigilopay_public_key: settings.sigilopay_public_key || null,
       sigilopay_secret_key: settings.sigilopay_secret_key || null,
+      evpay_api_key: settings.evpay_api_key || null,
+      evpay_project_id: settings.evpay_project_id || null,
       tracking_mode: settings.tracking_mode,
       prelander_headline: settings.prelander_headline || null,
       prelander_description: settings.prelander_description || null,
@@ -49,6 +67,16 @@ export async function saveBotSettings(botId: string, settings: BotSettings) {
 
   if (error) throw new Error(`Failed to save settings: ${error.message}`);
   invalidateBotCache(botId);
+
+  // Se o gateway é EvPay e tem credenciais, manda o server registrar o webhook
+  if (
+    settings.payment_gateway === "evpay" &&
+    settings.evpay_api_key &&
+    settings.evpay_project_id
+  ) {
+    await registerEvpayWebhookOnServer(botId);
+  }
+
   return { success: true };
 }
 

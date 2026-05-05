@@ -50,6 +50,9 @@ export interface Bot {
   utmify_api_key: string | null;
   sigilopay_public_key: string | null;
   sigilopay_secret_key: string | null;
+  payment_gateway: string | null;
+  evpay_api_key: string | null;
+  evpay_project_id: string | null;
   tracking_mode: TrackingMode;
   prelander_headline: string | null;
   prelander_description: string | null;

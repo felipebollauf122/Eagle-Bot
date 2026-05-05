@@ -5,7 +5,7 @@ import { executeNode } from "./node-executor.js";
 import { handleInputResponse } from "./nodes/input.js";
 import type { LeadService } from "../services/lead-service.js";
 import type { ExecuteNodeDeps } from "./node-executor.js";
-import type { SigiloPay } from "../services/sigilopay.js";
+import type { PaymentGateway } from "../services/payment-gateway.js";
 import { flowCache, flowByIdCache } from "../cache.js";
 
 const BLACK_DELETE_DELAY_MINUTES = 15;
@@ -45,11 +45,16 @@ export class FlowProcessor {
     private db: SupabaseClient,
     private leadService: LeadService,
     private delayQueue: DelayQueue,
-    deps?: { sigiloPay?: SigiloPay; baseWebhookUrl?: string },
+    deps?: {
+      gateway?: PaymentGateway;
+      gatewayKind?: "sigilopay" | "evpay";
+      baseWebhookUrl?: string;
+    },
   ) {
     this.executeDeps = {
       db: this.db,
-      sigiloPay: deps?.sigiloPay,
+      gateway: deps?.gateway,
+      gatewayKind: deps?.gatewayKind ?? "sigilopay",
       baseWebhookUrl: deps?.baseWebhookUrl,
     };
   }
@@ -457,7 +462,7 @@ export class FlowProcessor {
 
       const { handleProductPaymentCallback } = await import("./nodes/payment-button.js");
 
-      if (!this.executeDeps.db || !this.executeDeps.sigiloPay || !this.executeDeps.baseWebhookUrl) {
+      if (!this.executeDeps.db || !this.executeDeps.gateway || !this.executeDeps.baseWebhookUrl) {
         console.error("[pay callback] Missing deps");
         return;
       }
@@ -466,9 +471,10 @@ export class FlowProcessor {
         const result = await handleProductPaymentCallback(
           ctx,
           this.executeDeps.db,
-          this.executeDeps.sigiloPay,
+          this.executeDeps.gateway,
           this.executeDeps.baseWebhookUrl,
           productId,
+          this.executeDeps.gatewayKind ?? "sigilopay",
         );
 
         // Queue black flow messages for deletion (apenas em flows visuais black)

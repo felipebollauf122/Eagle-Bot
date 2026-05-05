@@ -1,29 +1,10 @@
-interface CreatePixPaymentParams {
-  identifier: string;
-  amount: number; // in BRL (reais), e.g. 97.00
-  clientName: string;
-  clientEmail: string;
-  clientPhone: string;
-  clientDocument: string;
-  products?: Array<{
-    id: string;
-    name: string;
-    quantity: number;
-    price: number; // in BRL
-  }>;
-  callbackUrl: string;
-  metadata?: Record<string, string>;
-}
+import type {
+  CreatePixPaymentParams,
+  PaymentGateway,
+  PixPaymentResult,
+} from "./payment-gateway.js";
 
-interface PixPaymentResult {
-  transactionId: string;
-  status: string;
-  pixCode: string;
-  pixImage: string | null;
-  orderId: string;
-}
-
-export class SigiloPay {
+export class SigiloPay implements PaymentGateway {
   private baseUrl = "https://app.poseidonpay.site/api/v1";
 
   constructor(

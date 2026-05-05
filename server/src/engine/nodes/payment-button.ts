@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NodeContext, NodeResult } from "../types.js";
-import type { SigiloPay } from "../../services/sigilopay.js";
+import type { PaymentGateway } from "../../services/payment-gateway.js";
 import { UtmifyService } from "../../services/utmify.js";
 import { FacebookCapi } from "../../services/facebook-capi.js";
 import { TrackingService } from "../../services/tracking-service.js";
@@ -34,7 +34,7 @@ interface Bundle {
 export async function handlePaymentBundleNode(
   ctx: NodeContext,
   db: SupabaseClient,
-  _sigiloPay: SigiloPay,
+  _gateway: PaymentGateway,
   _baseWebhookUrl: string,
 ): Promise<NodeResult> {
   const bundleId = String(ctx.node.data.bundle_id ?? "");
@@ -154,9 +154,10 @@ export async function handlePaymentBundleNode(
 export async function handleProductPaymentCallback(
   ctx: NodeContext,
   db: SupabaseClient,
-  sigiloPay: SigiloPay,
+  gateway: PaymentGateway,
   baseWebhookUrl: string,
   productId: string,
+  gatewayKind: "sigilopay" | "evpay" = "sigilopay",
 ): Promise<NodeResult> {
   // Fetch product
   const { data: product } = await db
@@ -187,10 +188,12 @@ export async function handleProductPaymentCallback(
   const clientPhone = String(ctx.lead.state.phone ?? "11999999999");
   const clientDocument = String(ctx.lead.state.document ?? "52998224725");
 
-  // Single webhook URL for the entire platform (not per-bot) to avoid
-  // hitting SigiloPay's 20-webhook limit. The bot is resolved from the
-  // transaction record when the callback arrives.
-  const callbackUrl = `${baseWebhookUrl}/webhook/payment`;
+  // Webhook callback (sigilopay manda no body da request; evpay tem webhook
+  // pré-registrado no projeto e ignora callbackUrl no payload do payment).
+  const callbackUrl =
+    gatewayKind === "evpay"
+      ? `${baseWebhookUrl}/webhook/evpay`
+      : `${baseWebhookUrl}/webhook/payment`;
 
   // Instant feedback — send before generating pix (fire-and-forget)
   const loadingMsg = await ctx.telegram.sendMessage({
@@ -200,7 +203,7 @@ export async function handleProductPaymentCallback(
 
   let payment;
   try {
-    payment = await sigiloPay.createPixPayment({
+    payment = await gateway.createPixPayment({
       identifier,
       amount: amountInReais,
       clientName: ctx.lead.first_name,
@@ -228,7 +231,7 @@ export async function handleProductPaymentCallback(
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[payment] SigiloPay failed for product ${productId}, lead ${ctx.lead.id}:`, errorMsg);
+    console.error(`[payment] ${gatewayKind} failed for product ${productId}, lead ${ctx.lead.id}:`, errorMsg);
     // Delete loading message on error
     if (loadingMsg) {
       ctx.telegram.deleteMessage(ctx.chatId, loadingMsg.message_id).catch(() => {});
@@ -250,7 +253,7 @@ export async function handleProductPaymentCallback(
     bot_id: ctx.lead.bot_id,
     flow_id: ctx.lead.current_flow_id ?? null,
     product_id: typedProduct.id,
-    gateway: "sigilopay",
+    gateway: gatewayKind,
     external_id: payment.transactionId,
     amount: typedProduct.price,
     currency: typedProduct.currency,

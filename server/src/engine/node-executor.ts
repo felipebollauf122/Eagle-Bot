@@ -10,7 +10,7 @@ import { handleActionNode } from "./nodes/action.js";
 import { handleVideoNode } from "./nodes/video.js";
 import { handlePaymentBundleNode } from "./nodes/payment-button.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { SigiloPay } from "../services/sigilopay.js";
+import type { PaymentGateway } from "../services/payment-gateway.js";
 
 const handlers: Record<string, (ctx: NodeContext) => Promise<NodeResult>> = {
   trigger: handleTriggerNode,
@@ -26,22 +26,23 @@ const handlers: Record<string, (ctx: NodeContext) => Promise<NodeResult>> = {
 
 export interface ExecuteNodeDeps {
   db?: SupabaseClient;
-  sigiloPay?: SigiloPay;
+  gateway?: PaymentGateway;
+  gatewayKind?: "sigilopay" | "evpay";
   baseWebhookUrl?: string;
 }
 
 export async function executeNode(ctx: NodeContext, deps?: ExecuteNodeDeps): Promise<NodeResult> {
   try {
     if (ctx.node.type === "payment_button") {
-      if (!deps?.db || !deps?.sigiloPay || !deps?.baseWebhookUrl) {
-        console.error(`[payment_button] Missing deps for node ${ctx.node.id}: db=${!!deps?.db}, sigiloPay=${!!deps?.sigiloPay}, baseWebhookUrl=${!!deps?.baseWebhookUrl}`);
+      if (!deps?.db || !deps?.gateway || !deps?.baseWebhookUrl) {
+        console.error(`[payment_button] Missing deps for node ${ctx.node.id}: db=${!!deps?.db}, gateway=${!!deps?.gateway}, baseWebhookUrl=${!!deps?.baseWebhookUrl}`);
         await ctx.telegram.sendMessage({
           chatId: ctx.chatId,
           text: "Erro interno: pagamento não configurado. Contate o administrador.",
         });
         return { nextNodeId: null };
       }
-      return await handlePaymentBundleNode(ctx, deps.db, deps.sigiloPay, deps.baseWebhookUrl);
+      return await handlePaymentBundleNode(ctx, deps.db, deps.gateway, deps.baseWebhookUrl);
     }
 
     const handler = handlers[ctx.node.type];

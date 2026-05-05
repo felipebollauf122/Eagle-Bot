@@ -219,3 +219,68 @@ export async function handlePaymentWebhook(req: Request, res: Response): Promise
     console.error(`[payment-webhook] Error for bot ${botId}:`, error);
   }
 }
+
+/**
+ * Express handler for /webhook/evpay (EvPay gateway).
+ * Valida assinatura HMAC-SHA256 (header X-Webhook-Signature) usando o
+ * evpay_webhook_secret salvo no bot que originou a transação.
+ */
+export async function handleEvPayWebhook(req: Request, res: Response): Promise<void> {
+  res.status(200).json({ ok: true });
+
+  try {
+    const body = req.body as Record<string, unknown>;
+    const rawBody = JSON.stringify(body);
+    const signature = String(req.header("X-Webhook-Signature") ?? "");
+
+    console.log(`[evpay-webhook] Received:`, rawBody);
+
+    // Extrai transactionId do payload pra localizar o bot e validar a assinatura
+    const data = (body.data ?? {}) as Record<string, unknown>;
+    const transactionId = String(
+      body.transactionId ?? body.id ?? data.id ?? data.transactionId ?? "",
+    );
+    if (!transactionId) {
+      console.error(`[evpay-webhook] Missing transactionId in payload`);
+      return;
+    }
+
+    const { data: tx } = await supabase
+      .from("transactions")
+      .select("bot_id")
+      .eq("external_id", transactionId)
+      .maybeSingle();
+    if (!tx) {
+      console.error(`[evpay-webhook] Transaction not found: ${transactionId}`);
+      return;
+    }
+
+    const { data: botRow } = await supabase
+      .from("bots")
+      .select("evpay_webhook_secret")
+      .eq("id", tx.bot_id)
+      .single();
+    const secret = String((botRow as { evpay_webhook_secret?: string } | null)?.evpay_webhook_secret ?? "");
+    if (!secret) {
+      console.error(`[evpay-webhook] Bot ${tx.bot_id} has no evpay_webhook_secret set`);
+      return;
+    }
+
+    const { EvPay } = await import("../services/evpay.js");
+    if (!EvPay.verifySignature(rawBody, signature, secret)) {
+      console.error(`[evpay-webhook] Invalid signature for tx ${transactionId}`);
+      return;
+    }
+
+    // Normaliza pro mesmo formato que o processPaymentCallback espera
+    const event = String(body.event ?? "");
+    const status =
+      event === "pix.in.confirmation"
+        ? "PAID"
+        : String(body.status ?? data.status ?? "");
+
+    await processPaymentCallback(tx.bot_id, { transactionId, status });
+  } catch (error) {
+    console.error(`[evpay-webhook] Error:`, error);
+  }
+}

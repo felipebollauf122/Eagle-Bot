@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { TelegramApi } from "../telegram/api.js";
 import { FlowProcessor } from "../engine/flow-processor.js";
 import { LeadService } from "../services/lead-service.js";
-import { SigiloPay } from "../services/sigilopay.js";
+import { buildGateway } from "../services/gateway-factory.js";
 import { addDelayedJob } from "../queue.js";
 import { config } from "../config.js";
 import type { Flow } from "../engine/flow-processor.js";
@@ -105,9 +105,10 @@ async function processConfig(db: SupabaseClient, cfg: RemarketingConfig): Promis
 
   const leadService = new LeadService(db);
   const telegram = new TelegramApi(typedBot.telegram_token, { protectContent: typedBot.protect_content });
-  const sigiloPay = new SigiloPay(typedBot.sigilopay_public_key ?? "", typedBot.sigilopay_secret_key ?? "");
+  const { gateway, kind: gatewayKind } = buildGateway(typedBot);
   const processor = new FlowProcessor(db, leadService, { addDelayedJob }, {
-    sigiloPay,
+    gateway,
+    gatewayKind,
     baseWebhookUrl: config.baseWebhookUrl,
   });
 

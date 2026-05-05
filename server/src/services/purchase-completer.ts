@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { TelegramApi } from "../telegram/api.js";
 import { FlowProcessor } from "../engine/flow-processor.js";
 import { LeadService } from "./lead-service.js";
-import { SigiloPay } from "./sigilopay.js";
+import { buildGateway } from "./gateway-factory.js";
 import { FacebookCapi } from "./facebook-capi.js";
 import { UtmifyService } from "./utmify.js";
 import { TrackingService } from "./tracking-service.js";
@@ -17,11 +17,14 @@ interface Bot {
   tenant_id: string;
   telegram_token: string;
   protect_content: boolean;
+  payment_gateway: string | null;
   facebook_pixel_id: string | null;
   facebook_access_token: string | null;
   utmify_api_key: string | null;
   sigilopay_public_key: string | null;
   sigilopay_secret_key: string | null;
+  evpay_api_key: string | null;
+  evpay_project_id: string | null;
 }
 
 interface Transaction {
@@ -136,9 +139,10 @@ export async function completePurchase(
 
   console.log(`[purchase-completer] Resuming flow on "paid" edge → node ${paidEdge.target}`);
   const telegram = new TelegramApi(bot.telegram_token, { protectContent: bot.protect_content });
-  const sigiloPay = new SigiloPay(bot.sigilopay_public_key ?? "", bot.sigilopay_secret_key ?? "");
+  const { gateway, kind: gatewayKind } = buildGateway(bot);
   const processor = new FlowProcessor(db, leadService, { addDelayedJob }, {
-    sigiloPay,
+    gateway,
+    gatewayKind,
     baseWebhookUrl: config.baseWebhookUrl,
   });
 
