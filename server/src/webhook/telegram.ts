@@ -9,6 +9,7 @@ import { UtmifyService } from "../services/utmify.js";
 import { addDelayedJob } from "../queue.js";
 import { ensureBotPaymentKeys } from "../services/bot-loader.js";
 import { buildGateway } from "../services/gateway-factory.js";
+import { isBlacklisted } from "../services/blacklist.js";
 import { config } from "../config.js";
 import { botCache } from "../cache.js";
 
@@ -239,6 +240,12 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       const username = msg.from.username ?? null;
       const text = msg.text ?? "";
 
+      // Blacklist: silêncio total — não responde, não cria lead, não tracka.
+      if (await isBlacklisted(supabase, typedBot.id, telegramUserId)) {
+        console.log(`[blacklist] Ignoring message from ${telegramUserId} on bot ${typedBot.id}`);
+        return;
+      }
+
       // Resolve which flow to use and extract tracking data
       const isStartCommand = text.startsWith("/start");
       let flowName: string | undefined;
@@ -352,6 +359,13 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       console.log(`[webhook] Callback query from ${telegramUserId}: "${callbackData}"`);
 
       if (!chatId) return;
+
+      // Blacklist: ignora cliques de botões também.
+      if (await isBlacklisted(supabase, typedBot.id, telegramUserId)) {
+        console.log(`[blacklist] Ignoring callback from ${telegramUserId} on bot ${typedBot.id}`);
+        try { await telegram.answerCallbackQuery(cb.id); } catch { /* ignore */ }
+        return;
+      }
 
       const lead = await leadService.findOrCreateLead({
         botId: typedBot.id,

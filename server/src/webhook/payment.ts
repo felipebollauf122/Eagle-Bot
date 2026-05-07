@@ -4,6 +4,7 @@ import { TelegramApi } from "../telegram/api.js";
 import { LeadService } from "../services/lead-service.js";
 import { addPurchaseEmailTimeoutJob } from "../queue.js";
 import { completePurchase } from "../services/purchase-completer.js";
+import { isBlacklisted } from "../services/blacklist.js";
 import { botCache } from "../cache.js";
 import { config } from "../config.js";
 import type { Lead } from "../engine/types.js";
@@ -168,6 +169,14 @@ export async function processPaymentCallback(botId: string | null, body: Record<
   const baseState = { ...typedLead.state, paid: true };
   await leadService.updateState(typedLead.id, baseState);
   typedLead.state = baseState;
+
+  // Blacklist: pagamento pode estar approved no DB pra contabilidade,
+  // mas NÃO envia "Pagamento confirmado" no Telegram, NÃO retoma flow,
+  // NÃO pede email. Silêncio total — mesma lógica das outras vias.
+  if (await isBlacklisted(supabase, transaction.bot_id, typedLead.telegram_user_id)) {
+    console.log(`[blacklist] Skipping post-payment flow for lead ${typedLead.id} (tx ${transaction.id})`);
+    return;
+  }
 
   // Toggle: bot pode pular a coleta de email e disparar Purchase imediato.
   if (bot.collect_email_after_payment) {

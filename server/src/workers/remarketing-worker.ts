@@ -103,6 +103,27 @@ async function processConfig(db: SupabaseClient, cfg: RemarketingConfig): Promis
 
   if (!leads || leads.length === 0) return;
 
+  // Tira leads que estão na blacklist do bot — eles não devem receber
+  // remarketing nenhum (mesmo motivo do telegram-webhook: silêncio total).
+  const { data: blacklistedRows } = await db
+    .from("blacklist_users")
+    .select("telegram_user_id")
+    .eq("bot_id", cfg.bot_id);
+  const blacklistedSet = new Set(
+    (blacklistedRows ?? []).map(
+      (r) => (r as { telegram_user_id: number }).telegram_user_id,
+    ),
+  );
+  const filteredLeads = (leads as Lead[]).filter(
+    (l) => !blacklistedSet.has(l.telegram_user_id),
+  );
+  if (filteredLeads.length === 0) return;
+  if (filteredLeads.length < leads.length) {
+    console.log(
+      `[remarketing] bot=${cfg.bot_id}: ${leads.length - filteredLeads.length} blacklisted leads pulados`,
+    );
+  }
+
   const leadService = new LeadService(db);
   const telegram = new TelegramApi(typedBot.telegram_token, { protectContent: typedBot.protect_content });
   const { gateway, kind: gatewayKind } = buildGateway(typedBot);
@@ -114,7 +135,7 @@ async function processConfig(db: SupabaseClient, cfg: RemarketingConfig): Promis
 
   const now = new Date();
 
-  for (const lead of leads as Lead[]) {
+  for (const lead of filteredLeads) {
     try {
       await processLeadRemarketing(db, cfg, typedFlows, lead, processor, telegram, now);
     } catch (error) {
