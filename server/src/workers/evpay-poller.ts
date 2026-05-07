@@ -4,14 +4,14 @@ import { EvPay } from "../services/evpay.js";
 interface PendingTransaction {
   id: string;
   bot_id: string;
+  tenant_id: string;
   external_id: string;
   created_at: string;
 }
 
-interface BotEvpay {
-  id: string;
-  evpay_api_key: string | null;
-  evpay_project_id: string | null;
+interface EvpayCredential {
+  apiKey: string;
+  projectId: string;
 }
 
 /**
@@ -23,25 +23,26 @@ interface BotEvpay {
  * Existe pra resolver o caso em que a Yvepay aprova a venda mas não
  * envia webhook automático.
  *
- * Escalonamento por idade pra economizar chamadas na API:
+ * Escalonamento por idade:
  *   - tx ≤ 5min  → poll a cada 5s
  *   - tx 5-30min → poll a cada 30s
- *   - tx > 30min → poll a cada 2min (provavelmente já expirou)
- *   - tx > 24h   → ignora (definitivamente expirou)
+ *   - tx 30min-24h → poll a cada 2min
+ *   - tx > 24h   → ignora
  *
- * O loop sempre roda em 5s mas decide se VAI consultar cada tx
- * baseado no last_polled_at (memória in-process).
+ * Estratégia de credencial: pra cada tx, tenta TODAS as credenciais
+ * EvPay distintas do mesmo tenant — não confia que o bot dono ainda
+ * tenha as credenciais certas (pode ter trocado de projeto, ou ter
+ * sido criado quando outro projeto estava ativo).
  */
 const lastPolledAt = new Map<string, number>();
 
 function shouldPoll(createdAt: string, txId: string, now: number): boolean {
   const ageMs = now - new Date(createdAt).getTime();
-  // Define o intervalo mínimo de poll baseado na idade
   let intervalMs: number;
-  if (ageMs <= 5 * 60_000) intervalMs = 5_000;            // ≤5min: 5s
-  else if (ageMs <= 30 * 60_000) intervalMs = 30_000;     // 5-30min: 30s
-  else if (ageMs <= 24 * 60 * 60_000) intervalMs = 120_000; // ≤24h: 2min
-  else return false;                                       // >24h: skip
+  if (ageMs <= 5 * 60_000) intervalMs = 5_000;
+  else if (ageMs <= 30 * 60_000) intervalMs = 30_000;
+  else if (ageMs <= 24 * 60 * 60_000) intervalMs = 120_000;
+  else return false;
 
   const last = lastPolledAt.get(txId) ?? 0;
   if (now - last < intervalMs) return false;
@@ -49,12 +50,41 @@ function shouldPoll(createdAt: string, txId: string, now: number): boolean {
   return true;
 }
 
+/**
+ * Lista todas as combinações (apiKey, projectId) distintas de bots
+ * EvPay de um tenant. Cada credencial será testada em ordem pra
+ * achar a tx no Yvepay.
+ */
+async function listTenantCredentials(
+  db: SupabaseClient,
+  tenantId: string,
+): Promise<EvpayCredential[]> {
+  const { data: bots } = await db
+    .from("bots")
+    .select("evpay_api_key, evpay_project_id")
+    .eq("tenant_id", tenantId)
+    .not("evpay_api_key", "is", null)
+    .not("evpay_project_id", "is", null);
+
+  if (!bots) return [];
+
+  const seen = new Set<string>();
+  const out: EvpayCredential[] = [];
+  for (const b of bots as Array<{ evpay_api_key: string | null; evpay_project_id: string | null }>) {
+    if (!b.evpay_api_key || !b.evpay_project_id) continue;
+    const k = `${b.evpay_api_key}::${b.evpay_project_id}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ apiKey: b.evpay_api_key, projectId: b.evpay_project_id });
+  }
+  return out;
+}
+
 export async function pollEvpayPendingTransactions(db: SupabaseClient): Promise<void> {
-  // Pega transações pendentes EvPay das últimas 24h
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data: pending } = await db
     .from("transactions")
-    .select("id, bot_id, external_id, created_at")
+    .select("id, bot_id, tenant_id, external_id, created_at")
     .eq("gateway", "evpay")
     .eq("status", "pending")
     .gte("created_at", dayAgo)
@@ -62,56 +92,62 @@ export async function pollEvpayPendingTransactions(db: SupabaseClient): Promise<
 
   if (!pending || pending.length === 0) return;
 
-  // Filtra só as que estão na hora de pollar
   const now = Date.now();
   const due = (pending as PendingTransaction[]).filter((tx) =>
     shouldPoll(tx.created_at, tx.id, now),
   );
   if (due.length === 0) return;
 
-  // Agrupa por bot pra reaproveitar a mesma instância EvPay por bot
-  const byBot = new Map<string, PendingTransaction[]>();
+  // Agrupa por tenant pra resolver credenciais 1x por tenant
+  const byTenant = new Map<string, PendingTransaction[]>();
   for (const tx of due) {
-    const arr = byBot.get(tx.bot_id) ?? [];
+    const arr = byTenant.get(tx.tenant_id) ?? [];
     arr.push(tx);
-    byBot.set(tx.bot_id, arr);
+    byTenant.set(tx.tenant_id, arr);
   }
 
-  for (const [botId, txs] of byBot) {
-    const { data: botRow } = await db
-      .from("bots")
-      .select("id, evpay_api_key, evpay_project_id")
-      .eq("id", botId)
-      .single();
-    const bot = botRow as BotEvpay | null;
-    if (!bot?.evpay_api_key || !bot?.evpay_project_id) {
-      console.log(`[evpay-poller] Bot ${botId} sem credenciais EvPay, pulando ${txs.length} txs`);
+  for (const [tenantId, txs] of byTenant) {
+    const credentials = await listTenantCredentials(db, tenantId);
+    if (credentials.length === 0) {
+      console.log(`[evpay-poller] Tenant ${tenantId} sem credenciais EvPay, pulando ${txs.length} txs`);
       continue;
     }
 
-    const evpay = new EvPay(bot.evpay_api_key, bot.evpay_project_id);
-
     for (const tx of txs) {
       try {
-        const result = await evpay.getPaymentStatus(tx.external_id);
-        if (!result) {
-          console.log(`[evpay-poller] tx ${tx.external_id} not found at Yvepay`);
-          continue;
+        // Tenta cada credencial até uma encontrar a tx
+        let found: { status: string; credential: EvpayCredential } | null = null;
+        for (const cred of credentials) {
+          const evpay = new EvPay(cred.apiKey, cred.projectId);
+          const r = await evpay.getPaymentStatus(tx.external_id);
+          if (r) {
+            found = { status: r.status, credential: cred };
+            break;
+          }
         }
-        const status = result.status.toUpperCase();
-        if (!["APPROVED", "EXPIRED", "FAILED", "REFUNDED", "PAID"].includes(status)) {
-          // Ainda pending no lado deles
-          continue;
-        }
-        console.log(`[evpay-poller] tx ${tx.external_id} status=${status} — disparando pipeline`);
 
-        // Reusa o pipeline do webhook
+        if (!found) {
+          console.log(
+            `[evpay-poller] tx ${tx.external_id} not found em ${credentials.length} projeto(s) do tenant ${tenantId}`,
+          );
+          continue;
+        }
+
+        const status = found.status.toUpperCase();
+        if (!["APPROVED", "EXPIRED", "FAILED", "REFUNDED", "PAID"].includes(status)) {
+          // Ainda pending no Yvepay — log com debounce
+          continue;
+        }
+
+        console.log(
+          `[evpay-poller] tx ${tx.external_id} status=${status} (proj=${found.credential.projectId}) — disparando pipeline`,
+        );
+
         const { processPaymentCallback } = await import("../webhook/payment.js");
-        await processPaymentCallback(botId, {
+        await processPaymentCallback(tx.bot_id, {
           transactionId: tx.external_id,
           status,
         });
-        // Tx finalizada — remove do cache pra não acumular memória
         lastPolledAt.delete(tx.id);
       } catch (err) {
         console.error(`[evpay-poller] Erro processando tx ${tx.external_id}:`, err);
