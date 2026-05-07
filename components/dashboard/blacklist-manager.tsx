@@ -85,7 +85,7 @@ export function BlacklistManager({ botId, initialBlacklist }: BlacklistManagerPr
         <div>
           <h2 className="text-foreground font-semibold text-sm tracking-tight">Blacklist</h2>
           <p className="text-(--text-muted) text-xs">
-            Usuarios que sempre receberao o fluxo white (visual)
+            Usuários ignorados pelo bot — não recebem mensagens, remarketing nem callbacks
           </p>
         </div>
       </div>
