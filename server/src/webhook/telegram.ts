@@ -10,6 +10,7 @@ import { addDelayedJob } from "../queue.js";
 import { ensureBotPaymentKeys } from "../services/bot-loader.js";
 import { buildGateway } from "../services/gateway-factory.js";
 import { isBlacklisted } from "../services/blacklist.js";
+import { resolveTenantIdentity } from "../services/lead-identity.js";
 import { config } from "../config.js";
 import { botCache } from "../cache.js";
 
@@ -266,15 +267,42 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         }
       }
 
-      // Find or create lead
+      // Resolve a identidade desse usuário no contexto do tenant.
+      // Isso herda tid/fbclid/UTMs de outros bots do MESMO vendedor
+      // (caso o user já tenha entrado em outro bot do tenant antes)
+      // e atualiza com last-touch quando vem campanha nova.
+      const identity = await resolveTenantIdentity(
+        supabase,
+        typedBot.tenant_id,
+        telegramUserId,
+        typedBot.id,
+        {
+          tid,
+          fbclid: trackingData.fbclid,
+          utm_source: trackingData.utmSource,
+          utm_medium: trackingData.utmMedium,
+          utm_campaign: trackingData.utmCampaign,
+          utm_content: trackingData.utmContent,
+          utm_term: trackingData.utmTerm,
+        },
+      );
+
+      // Find or create lead — passa os valores resolvidos da identidade
+      // pra que o registro do lead nesse bot herde a atribuição da
+      // campanha original mesmo quando o user entra direto sem ?tid=...
       const lead = await leadService.findOrCreateLead({
         botId: typedBot.id,
         tenantId: typedBot.tenant_id,
         telegramUserId,
         firstName,
         username,
-        tid,
-        ...trackingData,
+        tid: identity.tid ?? undefined,
+        fbclid: identity.fbclid ?? undefined,
+        utmSource: identity.utm_source ?? undefined,
+        utmMedium: identity.utm_medium ?? undefined,
+        utmCampaign: identity.utm_campaign ?? undefined,
+        utmContent: identity.utm_content ?? undefined,
+        utmTerm: identity.utm_term ?? undefined,
       });
 
       // Register bot_start tracking event + Facebook CAPI Lead event
@@ -367,12 +395,29 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         return;
       }
 
+      // Herda atribuição da identity do tenant (sem update — sem campanha nova
+      // num clique de botão).
+      const identity = await resolveTenantIdentity(
+        supabase,
+        typedBot.tenant_id,
+        telegramUserId,
+        typedBot.id,
+        {},
+      );
+
       const lead = await leadService.findOrCreateLead({
         botId: typedBot.id,
         tenantId: typedBot.tenant_id,
         telegramUserId,
         firstName: cb.from.first_name ?? "",
         username: cb.from.username ?? null,
+        tid: identity.tid ?? undefined,
+        fbclid: identity.fbclid ?? undefined,
+        utmSource: identity.utm_source ?? undefined,
+        utmMedium: identity.utm_medium ?? undefined,
+        utmCampaign: identity.utm_campaign ?? undefined,
+        utmContent: identity.utm_content ?? undefined,
+        utmTerm: identity.utm_term ?? undefined,
       });
 
       console.log(`[webhook] Lead ${lead.id}, flow=${lead.current_flow_id}, node=${lead.current_node_id}, active_flow_name=${lead.active_flow_name}`);

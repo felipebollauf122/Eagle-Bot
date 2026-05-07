@@ -57,10 +57,14 @@ export class LeadService {
     if (existing) {
       const existingLead = existing as Lead;
 
-      // First attribution: if lead has no TID yet, associate tracking data.
-      // Once set, TID and UTMs are never overwritten — preserves anonymity
-      // and ensures only hot leads from campaigns get tracked.
-      if (!existingLead.tid && params.tid) {
+      // Sincroniza atribuição com a identidade do tenant ("last touch"):
+      //   - lead sem tid + identity traz tid → adota
+      //   - lead já tem tid mas identity tem tid DIFERENTE (campanha
+      //     nova) → atualiza pra refletir a campanha mais recente
+      //   - se nada mudou, não toca em nada (evita writes desnecessários)
+      const incomingHasTid = !!params.tid;
+      const tidIsDifferent = incomingHasTid && params.tid !== existingLead.tid;
+      if ((!existingLead.tid && incomingHasTid) || tidIsDifferent) {
         const { data: updated } = await this.db
           .from("leads")
           .update({
