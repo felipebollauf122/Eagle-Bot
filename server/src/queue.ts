@@ -308,11 +308,20 @@ export function startWorkers(): void {
     console.error("[black-delete] Startup error:", err)
   );
 
-  // Remarketing worker — poll every 60 seconds
+  // Remarketing worker — poll every 60 seconds, com trava in-process
+  // pra evitar execuções sobrepostas (causa de duplicação de mensagens).
+  let remarketingRunning = false;
   setInterval(() => {
-    processRemarketing(supabase).catch((err) =>
-      console.error("[remarketing] Error:", err)
-    );
+    if (remarketingRunning) {
+      console.log("[remarketing] Skip tick — execução anterior ainda em progresso");
+      return;
+    }
+    remarketingRunning = true;
+    processRemarketing(supabase)
+      .catch((err) => console.error("[remarketing] Error:", err))
+      .finally(() => {
+        remarketingRunning = false;
+      });
   }, 60_000);
 
   // EvPay status poller — fallback caso o webhook automático do Yvepay

@@ -217,6 +217,31 @@ async function processLeadRemarketing(
     return;
   }
 
+  // Trava de DB: tenta avançar last_flow_order ANTES de mandar a mensagem,
+  // condicionado ao last_sent_at e last_flow_order continuarem como
+  // estavam quando a gente leu. Se algum outro tick já avançou (race
+  // condition), o update afeta 0 linhas e a gente desiste — evita
+  // duplicação de mensagens no remarketing.
+  let lockUpdate = db
+    .from("remarketing_progress")
+    .update({
+      last_flow_order: nextFlow.sort_order,
+      last_sent_at: now.toISOString(),
+    })
+    .eq("id", typedProgress.id)
+    .eq("last_flow_order", typedProgress.last_flow_order);
+
+  lockUpdate = typedProgress.last_sent_at
+    ? lockUpdate.eq("last_sent_at", typedProgress.last_sent_at)
+    : lockUpdate.is("last_sent_at", null);
+
+  const { data: lockedRows } = await lockUpdate.select("id");
+
+  if (!lockedRows || lockedRows.length === 0) {
+    console.log(`[remarketing] Lock race lost for lead ${lead.id}, flow "${nextFlow.name}" — skipping`);
+    return;
+  }
+
   // Execute the remarketing flow
   console.log(`[remarketing] Sending flow "${nextFlow.name}" to lead ${lead.id}`);
 
@@ -245,21 +270,13 @@ async function processLeadRemarketing(
     false, // persistPosition=false: flow.id pertence a remarketing_flows, não a flows
   );
 
-  // If user blocked the bot, mark lead so we skip them in future remarketing
+  // If user blocked the bot, mark lead so we skip them in future remarketing.
+  // Progress já foi avançado antes do envio (lock acima), então mesmo que
+  // bloqueado o lead não é tentado de novo nesse mesmo flow.
   if (flowResult.blocked) {
     console.log(`[remarketing] Lead ${lead.id} blocked the bot, marking as blocked`);
     await db.from("leads").update({ blocked: true }).eq("id", lead.id);
-    return;
   }
-
-  // Update progress
-  await db
-    .from("remarketing_progress")
-    .update({
-      last_flow_order: nextFlow.sort_order,
-      last_sent_at: now.toISOString(),
-    })
-    .eq("id", typedProgress.id);
 }
 
 /**
