@@ -20,6 +20,7 @@ export interface Lead {
   bot_id: string;
   telegram_user_id: number;
   first_name: string;
+  last_name: string | null;
   username: string | null;
   tid: string | null;
   fbclid: string | null;

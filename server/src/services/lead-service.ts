@@ -5,6 +5,7 @@ interface FindOrCreateParams {
   tenantId: string;
   telegramUserId: number;
   firstName: string;
+  lastName?: string | null;
   username: string | null;
   tid?: string;
   fbclid?: string;
@@ -21,6 +22,7 @@ export interface Lead {
   bot_id: string;
   telegram_user_id: number;
   first_name: string;
+  last_name: string | null;
   username: string | null;
   tid: string | null;
   fbclid: string | null;
@@ -94,6 +96,7 @@ export class LeadService {
         bot_id: params.botId,
         telegram_user_id: params.telegramUserId,
         first_name: params.firstName,
+        last_name: params.lastName ?? null,
         username: params.username,
         tid: params.tid ?? null,
         fbclid: params.fbclid ?? null,

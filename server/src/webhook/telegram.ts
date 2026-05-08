@@ -238,6 +238,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       const chatId = msg.chat.id;
       const telegramUserId = msg.from.id;
       const firstName = msg.from.first_name ?? "";
+      const lastName = msg.from.last_name ?? null;
       const username = msg.from.username ?? null;
       const text = msg.text ?? "";
 
@@ -295,6 +296,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         tenantId: typedBot.tenant_id,
         telegramUserId,
         firstName,
+        lastName,
         username,
         tid: identity.tid ?? undefined,
         fbclid: identity.fbclid ?? undefined,
@@ -324,6 +326,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
             tid: lead.tid,
             fbclid: lead.fbclid,
             firstName: lead.first_name,
+            lastName: lead.last_name ?? undefined,
             utmSource: lead.utm_source ?? undefined,
             utmMedium: lead.utm_medium ?? undefined,
             utmCampaign: lead.utm_campaign ?? undefined,
@@ -410,6 +413,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
         tenantId: typedBot.tenant_id,
         telegramUserId,
         firstName: cb.from.first_name ?? "",
+        lastName: cb.from.last_name ?? null,
         username: cb.from.username ?? null,
         tid: identity.tid ?? undefined,
         fbclid: identity.fbclid ?? undefined,

@@ -5,6 +5,7 @@ interface UserData {
   fbp?: string;
   externalIds?: string[];
   firstName?: string;
+  lastName?: string;
   email?: string;
   phone?: string;
   country?: string;
@@ -94,6 +95,7 @@ export class FacebookCapi {
     }
     if (params.subscriptionId) ud.subscription_id = params.subscriptionId;
     if (params.firstName) ud.fn = this.hash(params.firstName);
+    if (params.lastName) ud.ln = this.hash(params.lastName);
     // Only hash email/phone if they contain real data (not empty/placeholder)
     if (params.email && params.email.length > 0 && !params.email.endsWith("@eaglebot.temp")) {
       ud.em = this.hash(params.email);

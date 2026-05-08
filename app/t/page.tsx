@@ -12,6 +12,16 @@ function generateFbp(): string {
   return `fb.1.${Date.now()}.${rand}`;
 }
 
+/**
+ * Build fbc (Facebook Click ID) no formato exato da Meta.
+ * Formato: fb.1.<click_unix_ms>.<fbclid>
+ * Esse é o valor que vai pro user_data.fbc no CAPI e tb pro cookie _fbc
+ * que o Pixel JS salvaria normalmente.
+ */
+function buildFbc(fbclid: string, clickTimeMs: number): string {
+  return `fb.1.${clickTimeMs}.${fbclid}`;
+}
+
 function extractClientIp(hdrs: Headers): string | null {
   const candidates = [
     hdrs.get("cf-connecting-ip"),
@@ -65,6 +75,13 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
   const hdrs = await headers();
   const clientIp = extractClientIp(hdrs);
   const userAgent = hdrs.get("user-agent") ?? null;
+  const acceptLanguage = hdrs.get("accept-language") ?? null;
+  const referer = hdrs.get("referer") ?? hdrs.get("referrer") ?? null;
+
+  // _fbc real do browser — se já tem cookie do Meta, prevalece;
+  // senão, deriva de fbclid+timestamp atual no formato oficial Meta.
+  const existingFbc = cookieStore.get("_fbc")?.value;
+  const fbcCookie = existingFbc || (fbclid ? buildFbc(fbclid, Date.now()) : "");
 
   const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "";
   const proto = hdrs.get("x-forwarded-proto") ?? "https";
@@ -93,9 +110,12 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
     },
     event_data: {
       fbp,
+      fbc: fbcCookie || null,
       click_time: clickTime,
       client_ip: clientIp,
       user_agent: userAgent,
+      accept_language: acceptLanguage,
+      referer,
       source_url: sourceUrl,
     },
     sent_to_facebook: false,
@@ -364,7 +384,11 @@ export default async function TrackingPage({ searchParams }: TrackingPageProps) 
 
       <script
         dangerouslySetInnerHTML={{
-          __html: `try{var e=document.cookie.split('; ').find(function(c){return c.indexOf('_fbp=')===0});if(!e){document.cookie='_fbp=${fbp}; path=/; max-age=7776000; SameSite=Lax';}}catch(e){}`,
+          __html: `try{
+var e=document.cookie.split('; ').find(function(c){return c.indexOf('_fbp=')===0});
+if(!e){document.cookie='_fbp=${fbp}; path=/; max-age=7776000; SameSite=Lax';}
+${fbcCookie ? `var f=document.cookie.split('; ').find(function(c){return c.indexOf('_fbc=')===0});if(!f){document.cookie='_fbc=${fbcCookie}; path=/; max-age=7776000; SameSite=Lax';}` : ""}
+}catch(e){}`,
         }}
       />
     </div>

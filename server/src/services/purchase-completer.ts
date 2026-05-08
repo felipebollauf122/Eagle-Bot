@@ -85,6 +85,7 @@ export async function completePurchase(
         tid: lead.tid,
         fbclid: lead.fbclid,
         firstName: lead.first_name,
+        lastName: lead.last_name ?? undefined,
         email: String(lead.state.email ?? ""),
         phone: String(lead.state.phone ?? ""),
         utmSource: lead.utm_source ?? undefined,

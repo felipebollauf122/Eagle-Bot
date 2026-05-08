@@ -7,6 +7,7 @@ interface LeadInfo {
   tid: string | null;
   fbclid: string | null;
   firstName: string;
+  lastName?: string | null;
   email?: string;
   phone?: string;
   utmSource?: string;
@@ -77,16 +78,19 @@ function buildFbc(fbclid: string | null, clickTimeMs: number | null): string {
 
 interface ClickContext {
   fbp?: string;
+  fbc?: string;
   clickTime?: number;
   clientIp?: string;
   userAgent?: string;
   sourceUrl?: string;
+  acceptLanguage?: string;
+  referer?: string;
 }
 
 /**
- * Look up the _fbp, real click timestamp, client IP, User-Agent and source URL
- * saved on the page_view event. These are persisted when the user lands on /t —
- * essential for high-quality matching on the Facebook CAPI Purchase event.
+ * Look up the _fbp, _fbc real, click timestamp, IP, UA, accept-language e referer
+ * salvos no page_view. Tudo isso vai pro user_data do CAPI Purchase pra
+ * maximizar Event Match Quality (EMQ).
  */
 async function loadClickContext(
   db: SupabaseClient,
@@ -104,10 +108,13 @@ async function loadClickContext(
   const ed = (data?.event_data ?? {}) as Record<string, unknown>;
   return {
     fbp: typeof ed.fbp === "string" ? ed.fbp : undefined,
+    fbc: typeof ed.fbc === "string" ? ed.fbc : undefined,
     clickTime: typeof ed.click_time === "number" ? ed.click_time : undefined,
     clientIp: typeof ed.client_ip === "string" ? ed.client_ip : undefined,
     userAgent: typeof ed.user_agent === "string" ? ed.user_agent : undefined,
     sourceUrl: typeof ed.source_url === "string" ? ed.source_url : undefined,
+    acceptLanguage: typeof ed.accept_language === "string" ? ed.accept_language : undefined,
+    referer: typeof ed.referer === "string" ? ed.referer : undefined,
   };
 }
 
@@ -131,12 +138,15 @@ function buildExternalIds(lead: LeadInfo): string[] {
 
 /** Build user_data for Facebook from lead info + click context */
 function buildFbUserData(lead: LeadInfo, ctx: ClickContext) {
-  const fbc = buildFbc(lead.fbclid, ctx.clickTime ?? null);
+  // Prioridade do fbc: cookie real do navegador (ctx.fbc) → derivado de fbclid
+  const derivedFbc = buildFbc(lead.fbclid, ctx.clickTime ?? null);
+  const fbc = ctx.fbc || derivedFbc;
   return {
     fbc: fbc || undefined,
     fbp: ctx.fbp,
     externalIds: buildExternalIds(lead),
     firstName: lead.firstName,
+    lastName: lead.lastName || undefined,
     email: lead.email || undefined,
     phone: lead.phone || undefined,
     clientIp: ctx.clientIp,
