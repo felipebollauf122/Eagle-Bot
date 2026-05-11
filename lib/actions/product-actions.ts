@@ -30,7 +30,7 @@ export async function createProduct(botId: string, name: string, price: number, 
   return { success: true };
 }
 
-export async function updateProduct(productId: string, data: { name?: string; price?: number; description?: string; is_active?: boolean; ghost_name?: string | null; ghost_description?: string | null }) {
+export async function updateProduct(productId: string, data: { name?: string; price?: number; description?: string; is_active?: boolean; ghost_name?: string | null; ghost_description?: string | null; button_style?: "danger" | "success" | "primary" | null }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");

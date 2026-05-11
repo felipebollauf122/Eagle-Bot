@@ -26,6 +26,7 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
   const [editDescription, setEditDescription] = useState("");
   const [editGhostName, setEditGhostName] = useState("");
   const [editGhostDescription, setEditGhostDescription] = useState("");
+  const [editButtonStyle, setEditButtonStyle] = useState<"" | "danger" | "success" | "primary">("");
   const [editSaving, setEditSaving] = useState(false);
 
   const handleCreate = async () => {
@@ -67,6 +68,7 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
     setEditDescription(product.description);
     setEditGhostName(product.ghost_name ?? "");
     setEditGhostDescription(product.ghost_description ?? "");
+    setEditButtonStyle((product.button_style as "" | "danger" | "success" | "primary") ?? "");
   };
 
   const cancelEditing = () => {
@@ -80,6 +82,7 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
         name: editName,
         price: Math.round(parseFloat(editPrice) * 100),
         description: editDescription,
+        button_style: editButtonStyle || null,
         ...(isAdmin ? {
           ghost_name: editGhostName.trim() || null,
           ghost_description: editGhostDescription.trim() || null,
@@ -93,6 +96,7 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
               name: editName,
               price: Math.round(parseFloat(editPrice) * 100),
               description: editDescription,
+              button_style: editButtonStyle || null,
               ...(isAdmin ? {
                 ghost_name: editGhostName.trim() || null,
                 ghost_description: editGhostDescription.trim() || null,
@@ -178,6 +182,22 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
                   <div>
                     <label className="input-label">Descricao</label>
                     <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={2} className="input resize-none" />
+                  </div>
+                  <div>
+                    <label className="input-label">Cor do botão de pagamento</label>
+                    <select
+                      value={editButtonStyle}
+                      onChange={(e) => setEditButtonStyle(e.target.value as "" | "danger" | "success" | "primary")}
+                      className="input"
+                    >
+                      <option value="">Padrão (tema do cliente)</option>
+                      <option value="danger">🔴 Vermelho</option>
+                      <option value="success">🟢 Verde</option>
+                      <option value="primary">🔵 Azul</option>
+                    </select>
+                    <p className="text-(--text-muted) text-[10px] mt-1">
+                      Funciona em clientes Telegram atualizados (Bot API 8+). Versões antigas mostram a cor padrão.
+                    </p>
                   </div>
 
                   {isAdmin && blackEnabled && (

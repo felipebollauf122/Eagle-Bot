@@ -18,11 +18,21 @@ export interface SendVideoParams {
   replyMarkup?: InlineKeyboardMarkup;
 }
 
+export type InlineKeyboardButtonStyle = "danger" | "success" | "primary";
+
 export interface InlineKeyboardButton {
   text: string;
   url?: string;
   callback_data?: string;
   copy_text?: { text: string };
+  /**
+   * Cor do botão (Bot API 8.x+).
+   *   danger  → vermelho
+   *   success → verde
+   *   primary → azul
+   * Omitido = cor padrão do tema do cliente.
+   */
+  style?: InlineKeyboardButtonStyle;
 }
 
 export interface InlineKeyboardMarkup {

@@ -76,6 +76,7 @@ export interface Product {
   description: string;
   ghost_name: string | null;
   ghost_description: string | null;
+  button_style: "danger" | "success" | "primary" | null;
   is_active: boolean;
   created_at: string;
 }

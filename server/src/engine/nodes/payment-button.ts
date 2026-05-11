@@ -14,6 +14,7 @@ interface BundleProduct {
   is_active: boolean;
   ghost_name: string | null;
   ghost_description: string | null;
+  button_style: "danger" | "success" | "primary" | null;
 }
 
 interface BundleItem {
@@ -50,7 +51,7 @@ export async function handlePaymentBundleNode(
   // Fetch bundle with products
   const { data: bundle, error } = await db
     .from("product_bundles")
-    .select("id, name, message_text, is_active, product_bundle_items(id, product_id, sort_order, products(id, name, price, currency, is_active, ghost_name, ghost_description))")
+    .select("id, name, message_text, is_active, product_bundle_items(id, product_id, sort_order, products(id, name, price, currency, is_active, ghost_name, ghost_description, button_style))")
     .eq("id", bundleId)
     .single();
 
@@ -82,7 +83,10 @@ export async function handlePaymentBundleNode(
   // No white flow ele sempre vê o nome real.
   const isBlack = ctx.lead.active_flow_name === "_black_flow";
 
-  // Build inline keyboard — one button per product with name + price
+  // Build inline keyboard — one button per product with name + price.
+  // Cada produto pode ter button_style ('danger', 'success', 'primary') que
+  // colore o botão (Bot API 8.x+). Clientes Telegram antigos ignoram o campo
+  // e mostram o botão na cor padrão — compatível.
   const inlineKeyboard = items.map((item) => {
     const product = item.products;
     const displayName = isBlack ? (product.ghost_name || product.name) : product.name;
@@ -91,12 +95,16 @@ export async function handlePaymentBundleNode(
       style: "currency",
       currency: product.currency,
     });
-    return [
-      {
-        text: `${displayName} por ${priceFormatted}`,
-        callback_data: `pay:${product.id}`,
-      },
-    ];
+    const btn: {
+      text: string;
+      callback_data: string;
+      style?: "danger" | "success" | "primary";
+    } = {
+      text: `${displayName} por ${priceFormatted}`,
+      callback_data: `pay:${product.id}`,
+    };
+    if (product.button_style) btn.style = product.button_style;
+    return [btn];
   });
 
   // Send single message with header text + all product buttons
