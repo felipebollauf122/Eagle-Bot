@@ -10,12 +10,12 @@ interface AuthFormProps {
 
 const errorMessages: Record<string, string> = {
   "Invalid login credentials": "Email ou senha incorretos.",
-  "Email not confirmed": "Confirme seu email antes de fazer login.",
-  "User already registered": "Este email ja esta cadastrado.",
+  "Email not confirmed": "Email ainda não confirmado. Verifique sua caixa de entrada e a pasta de spam.",
+  "User already registered": "Este email já está cadastrado.",
   "Password should be at least 6 characters": "A senha deve ter pelo menos 6 caracteres.",
-  "Signup requires a valid password": "Informe uma senha valida.",
-  "Unable to validate email address: invalid format": "Formato de email invalido.",
-  auth_failed: "Falha na autenticacao. Tente novamente.",
+  "Signup requires a valid password": "Informe uma senha válida.",
+  "Unable to validate email address: invalid format": "Formato de email inválido.",
+  auth_failed: "Falha na autenticação. Tente novamente.",
 };
 
 function translateError(message: string): string {
@@ -59,15 +59,30 @@ export function AuthForm({ mode }: AuthFormProps) {
           return;
         }
 
-        if (data.user && !data.session) {
-          setSuccess("Conta criada! Verifique seu email para confirmar o cadastro.");
-          return;
-        }
-
         if (data.session) {
+          // Confirmação de email desligada no Supabase — entra direto.
           setSuccess("Conta criada com sucesso! Redirecionando...");
           await new Promise((r) => setTimeout(r, 300));
           router.replace("/dashboard");
+          return;
+        }
+
+        if (data.user && !data.session) {
+          // Supabase está com "Confirm email" ligado. Tenta um signIn
+          // direto — se o projeto Supabase NÃO bloquear login sem confirmação,
+          // o usuário entra na hora e tudo funciona sem ele precisar confirmar
+          // o email. Se o projeto bloquear, cai no fallback de mostrar mensagem.
+          const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+          if (signInData?.session && !signInErr) {
+            setSuccess("Conta criada com sucesso! Redirecionando...");
+            await new Promise((r) => setTimeout(r, 300));
+            router.replace("/dashboard");
+            return;
+          }
+          setSuccess("Conta criada! Verifique seu email para confirmar o cadastro.");
           return;
         }
       } else {
