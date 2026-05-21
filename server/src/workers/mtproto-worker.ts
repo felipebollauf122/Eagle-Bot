@@ -109,6 +109,97 @@ async function handleSubmitPassword(accountId: string, password: string): Promis
   }
 }
 
+async function handleSyncDialogs(accountId: string): Promise<void> {
+  const { data: account } = await supabase
+    .from("mtproto_accounts")
+    .select("*")
+    .eq("id", accountId)
+    .single();
+  if (!account) {
+    console.error(`[mtproto.sync] account ${accountId} not found`);
+    return;
+  }
+  if (account.status !== "active" || !account.session_string) {
+    console.error(`[mtproto.sync] account ${accountId} not authenticated (status=${account.status})`);
+    return;
+  }
+
+  console.log(`[mtproto.sync] starting dialog sync for account ${accountId}`);
+
+  let client: MtprotoClient;
+  try {
+    client = await getOrCreateClient(accountId, account.session_string);
+  } catch (err) {
+    console.error(`[mtproto.sync] failed to get client for ${accountId}:`, err);
+    await updateAccount(accountId, {
+      last_error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  let dialogs;
+  try {
+    dialogs = await client.listDialogs();
+  } catch (err) {
+    console.error(`[mtproto.sync] listDialogs failed for ${accountId}:`, err);
+    await updateAccount(accountId, {
+      last_error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  console.log(`[mtproto.sync] account ${accountId}: fetched ${dialogs.length} dialogs`);
+
+  // Substitui o conteúdo da tabela pra essa conta — sync é snapshot completo.
+  // Não usamos delete+insert pra evitar perder dialog_ids referenciados por
+  // mtproto_targets (FK on delete set null); upsert preserva ids existentes.
+  const now = new Date().toISOString();
+  const rows = dialogs.map((d) => ({
+    account_id: accountId,
+    peer_id: d.peerId,
+    peer_type: d.peerType,
+    peer_access_hash: d.peerAccessHash,
+    kind: d.kind,
+    title: d.title,
+    username: d.username,
+    is_bot: d.isBot,
+    last_synced_at: now,
+  }));
+
+  // Upsert em lotes de 500 pra evitar payload gigante
+  const batchSize = 500;
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    const { error } = await supabase
+      .from("mtproto_dialogs")
+      .upsert(batch, { onConflict: "account_id,peer_id,peer_type" });
+    if (error) {
+      console.error(`[mtproto.sync] upsert batch failed:`, error);
+      await updateAccount(accountId, { last_error: `sync upsert failed: ${error.message}` });
+      return;
+    }
+  }
+
+  // Remove dialogs que não apareceram nesse sync (peer saiu da conta)
+  if (rows.length > 0) {
+    const peerKeys = rows.map((r) => `(${r.peer_type},${r.peer_id})`).join(",");
+    // O Supabase Postgrest não tem `not in (tuple, tuple)`, então delete por última atualização:
+    // tudo que NÃO foi atualizado nesse sync (last_synced_at < now) é removido.
+    const { error: delErr } = await supabase
+      .from("mtproto_dialogs")
+      .delete()
+      .eq("account_id", accountId)
+      .lt("last_synced_at", now);
+    if (delErr) {
+      console.warn(`[mtproto.sync] stale dialog cleanup failed (non-fatal):`, delErr);
+    }
+    void peerKeys; // mantém log opcional pra debug
+  }
+
+  await updateAccount(accountId, { last_error: null });
+  console.log(`[mtproto.sync] account ${accountId}: ${rows.length} dialogs synced`);
+}
+
 async function handleCampaignRun(campaignId: string): Promise<void> {
   const { data: campaign } = await supabase
     .from("mtproto_campaigns")
@@ -138,16 +229,29 @@ async function handleCampaignRun(campaignId: string): Promise<void> {
 
   const { data: targets } = await supabase
     .from("mtproto_targets")
-    .select("*")
+    .select("*, mtproto_dialogs(peer_id, peer_type, peer_access_hash)")
     .eq("campaign_id", campaignId)
     .eq("status", "pending");
 
-  const targetRows: CampaignTargetRow[] = (targets ?? []).map((t) => ({
-    id: t.id,
-    identifier: t.target_identifier,
-    type: t.target_type,
-    status: t.status,
-  }));
+  const targetRows: CampaignTargetRow[] = (targets ?? []).map((t) => {
+    const row: CampaignTargetRow = {
+      id: t.id,
+      identifier: t.target_identifier,
+      type: t.target_type,
+      status: t.status,
+    };
+    const dialog = t.mtproto_dialogs as
+      | { peer_id: string; peer_type: "user" | "chat" | "channel"; peer_access_hash: string | null }
+      | null;
+    if (dialog) {
+      row.dialog = {
+        peerId: dialog.peer_id,
+        peerType: dialog.peer_type,
+        peerAccessHash: dialog.peer_access_hash,
+      };
+    }
+    return row;
+  });
 
   const runner = new CampaignRunner(
     pool,
@@ -156,7 +260,18 @@ async function handleCampaignRun(campaignId: string): Promise<void> {
         const acc = (accountsRaw ?? []).find((a) => a.id === accountId);
         if (!acc) throw new Error("account missing");
         const client = await getOrCreateClient(accountId, acc.session_string ?? "");
-        await client.sendMessage(target.identifier, target.type, text);
+        if (target.dialog) {
+          // Peer estruturado (vindo da sincronização) — caminho rápido e seguro.
+          await client.sendMessageToPeer(
+            target.dialog.peerId,
+            target.dialog.peerType,
+            target.dialog.peerAccessHash,
+            text,
+          );
+        } else {
+          // Caminho legado: lista colada com @username ou +telefone.
+          await client.sendMessage(target.identifier, target.type, text);
+        }
         await supabase
           .from("mtproto_accounts")
           .update({ last_used_at: new Date().toISOString() })
@@ -239,6 +354,8 @@ export function startMtprotoWorker(): void {
           return handleSubmitPassword(d.accountId, d.password);
         case "campaign.run":
           return handleCampaignRun(d.campaignId);
+        case "account.sync-dialogs":
+          return handleSyncDialogs(d.accountId);
       }
     },
     { connection, concurrency: 4 },

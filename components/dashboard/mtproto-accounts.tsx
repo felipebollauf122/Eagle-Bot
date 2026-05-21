@@ -6,6 +6,7 @@ import {
   submitAuthCode,
   submitAuthPassword,
   removeAccount,
+  syncAccountDialogs,
 } from "@/app/dashboard/automations/actions";
 import { createClient } from "@/lib/supabase/client";
 
@@ -114,16 +115,36 @@ export function MtprotoAccounts({ accounts }: { accounts: Account[] }) {
               <div className="text-red-400 text-xs mt-1">{a.last_error}</div>
             )}
           </div>
-          <button
-            onClick={() =>
-              startTransition(() =>
-                removeAccount(a.id).then(() => window.location.reload()),
-              )
-            }
-            className="text-white/40 hover:text-red-400 text-xs"
-          >
-            Remover
-          </button>
+          <div className="flex items-center gap-3">
+            {a.status === "active" && (
+              <button
+                onClick={() =>
+                  startTransition(async () => {
+                    try {
+                      await syncAccountDialogs(a.id);
+                      alert("Sincronização iniciada. Em alguns segundos seus contatos/grupos vão aparecer no formulário de campanha.");
+                    } catch (err) {
+                      alert(err instanceof Error ? err.message : "erro");
+                    }
+                  })
+                }
+                className="text-(--accent) hover:underline text-xs"
+                title="Sincroniza contatos, DMs, grupos e canais da conta — pode levar 10-30s em contas grandes"
+              >
+                Sincronizar contatos/grupos
+              </button>
+            )}
+            <button
+              onClick={() =>
+                startTransition(() =>
+                  removeAccount(a.id).then(() => window.location.reload()),
+                )
+              }
+              className="text-white/40 hover:text-red-400 text-xs"
+            >
+              Remover
+            </button>
+          </div>
         </div>
       ))}
 

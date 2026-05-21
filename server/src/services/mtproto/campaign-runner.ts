@@ -5,12 +5,22 @@ export interface CampaignTargetRow {
   identifier: string;
   type: "username" | "phone";
   status: "pending" | "sent" | "failed";
+  /**
+   * Quando setado, o runner ignora identifier/type e envia direto pro peer
+   * via sendMessageToPeer do MtprotoClient (mais barato e seguro — não tenta
+   * resolveUsername nem importContacts).
+   */
+  dialog?: {
+    peerId: string;
+    peerType: "user" | "chat" | "channel";
+    peerAccessHash: string | null;
+  };
 }
 
 export interface RunnerDeps {
   sendMessage: (
     accountId: string,
-    target: { identifier: string; type: "username" | "phone" },
+    target: CampaignTargetRow,
     text: string,
   ) => Promise<void>;
   markTargetSent: (targetId: string, accountId: string) => Promise<void>;
@@ -68,11 +78,7 @@ export class CampaignRunner {
       }
 
       try {
-        await this.deps.sendMessage(
-          account.id,
-          { identifier: target.identifier, type: target.type },
-          this.cfg.messageText,
-        );
+        await this.deps.sendMessage(account.id, target, this.cfg.messageText);
         await this.deps.markTargetSent(target.id, account.id);
         await this.deps.incrementCounters(this.cfg.campaignId, "sent");
       } catch (err) {
@@ -85,11 +91,7 @@ export class CampaignRunner {
             return;
           }
           try {
-            await this.deps.sendMessage(
-              nextAccount.id,
-              { identifier: target.identifier, type: target.type },
-              this.cfg.messageText,
-            );
+            await this.deps.sendMessage(nextAccount.id, target, this.cfg.messageText);
             await this.deps.markTargetSent(target.id, nextAccount.id);
             await this.deps.incrementCounters(this.cfg.campaignId, "sent");
           } catch (err2) {

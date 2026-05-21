@@ -8,7 +8,8 @@ export type MtprotoJobData =
   | { kind: "auth.request-code"; accountId: string; phoneNumber: string }
   | { kind: "auth.sign-in"; accountId: string; phoneNumber: string; code: string }
   | { kind: "auth.submit-password"; accountId: string; password: string }
-  | { kind: "campaign.run"; campaignId: string };
+  | { kind: "campaign.run"; campaignId: string }
+  | { kind: "account.sync-dialogs"; accountId: string };
 
 export const mtprotoQueue = new Queue<MtprotoJobData>("mtproto", { connection });
 
