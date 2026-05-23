@@ -153,7 +153,7 @@ export function MtprotoCampaignForm() {
     }
     startTransition(async () => {
       try {
-        const { campaignId } = await createCampaign({
+        const res = await createCampaign({
           name,
           message,
           targetsRaw: isGlobal ? "" : targetsRaw,
@@ -163,8 +163,12 @@ export function MtprotoCampaignForm() {
           recurrenceHours: recurrenceEnabled ? recurrenceHours : null,
           global: isGlobal,
         });
-        if (launch) await launchCampaign(campaignId);
-        router.push(`/dashboard/automations/campaigns/${campaignId}`);
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        if (launch) await launchCampaign(res.campaignId);
+        router.push(`/dashboard/automations/campaigns/${res.campaignId}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : "erro");
       }
