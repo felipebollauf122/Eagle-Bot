@@ -37,6 +37,19 @@ export class AccountPool {
     return null;
   }
 
+  /**
+   * Pega uma conta específica pelo id, respeitando disponibilidade.
+   * Usado em campanhas globais onde cada target tem uma conta pré-atribuída
+   * (porque o access_hash do dialog só vale pra essa conta).
+   * Retorna null se a conta não existe no pool OU está indisponível
+   * (flood_wait/banned/disconnected).
+   */
+  getById(id: string): PoolAccount | null {
+    const a = this.accounts.find((x) => x.id === id);
+    if (!a) return null;
+    return this.isAvailable(a) ? a : null;
+  }
+
   markFloodWait(id: string, seconds: number): void {
     const a = this.accounts.find((x) => x.id === id);
     if (!a) return;

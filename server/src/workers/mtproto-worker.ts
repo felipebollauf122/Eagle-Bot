@@ -250,6 +250,11 @@ async function handleCampaignRun(campaignId: string): Promise<void> {
         peerAccessHash: dialog.peer_access_hash,
       };
     }
+    // Em campanhas globais (e em alguns casos com dialog), a conta já vem
+    // pré-atribuída no target — o access_hash do dialog só vale pra ela.
+    if (t.account_id) {
+      row.pinnedAccountId = t.account_id;
+    }
     return row;
   });
 

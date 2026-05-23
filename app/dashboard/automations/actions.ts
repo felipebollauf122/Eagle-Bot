@@ -91,19 +91,99 @@ export async function createCampaign(input: {
   delayMax: number;
   dialogIds?: string[];
   recurrenceHours?: number | null;
+  global?: boolean;
 }): Promise<{ campaignId: string }> {
   const tenantId = await currentTenantId();
   const supabase = await createClient();
+
+  // Valida recurrence: se setado, mínimo 6h (anti-ban). null = não recorrente.
+  let recurrenceHours: number | null = null;
+  if (input.recurrenceHours != null && input.recurrenceHours > 0) {
+    if (input.recurrenceHours < 6) {
+      throw new Error("Mínimo 6 horas entre execuções (anti-ban).");
+    }
+    recurrenceHours = Math.floor(input.recurrenceHours);
+  }
+
+  const isGlobal = Boolean(input.global);
+
+  // ===== Caminho global =====
+  // Cada conta ativa do tenant dispara pros próprios dialogs em kinds
+  // seguros (contact, dm, group_admin, channel_owner). Ignora targetsRaw
+  // e dialogIds.
+  if (isGlobal) {
+    const { data: accounts } = await supabase
+      .from("mtproto_accounts")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("status", "active");
+    if (!accounts || accounts.length === 0) {
+      throw new Error("Nenhuma conta ativa. Conecte pelo menos uma conta antes.");
+    }
+    const accountIds = accounts.map((a) => a.id);
+
+    const { data: dialogs, error: dErr } = await supabase
+      .from("mtproto_dialogs")
+      .select("id, account_id, title, username, kind")
+      .in("account_id", accountIds)
+      .in("kind", ["contact", "dm", "group_admin", "channel_owner"]);
+    if (dErr) throw new Error(`Failed to load global dialogs: ${dErr.message}`);
+    const dialogList = dialogs ?? [];
+    if (dialogList.length === 0) {
+      throw new Error(
+        "Disparo global: nenhum contato/DM/grupo admin/canal seu encontrado. Sincronize as contas primeiro.",
+      );
+    }
+
+    const { data: campaign, error: cErr } = await supabase
+      .from("mtproto_campaigns")
+      .insert({
+        tenant_id: tenantId,
+        name: input.name,
+        message_text: input.message,
+        delay_min_seconds: input.delayMin,
+        delay_max_seconds: input.delayMax,
+        total_targets: dialogList.length,
+        status: "draft",
+        failed_count: 0,
+        recurrence_hours: recurrenceHours,
+        is_global: true,
+      })
+      .select("id")
+      .single();
+    if (cErr) throw new Error(cErr.message);
+
+    const rows = dialogList.map((d) => ({
+      campaign_id: campaign.id,
+      target_identifier: d.username ?? d.title ?? d.id,
+      target_type: "username" as const,
+      status: "pending" as const,
+      dialog_id: d.id,
+      account_id: d.account_id, // pré-atribui qual conta vai mandar
+    }));
+
+    // Insert em lotes pra evitar payload gigante
+    for (let i = 0; i < rows.length; i += 500) {
+      const batch = rows.slice(i, i + 500);
+      const { error } = await supabase.from("mtproto_targets").insert(batch);
+      if (error) throw new Error(`Insert targets failed: ${error.message}`);
+    }
+
+    revalidatePath("/dashboard/automations");
+    return { campaignId: campaign.id };
+  }
+
+  // ===== Caminho não-global (atual) =====
   const parsed = parseTargets(input.targetsRaw || "");
   const valid = parsed.filter((t) => t.valid);
   const invalid = parsed.filter((t) => !t.valid);
 
   // Resolve dialog rows (com peer info) e garante que pertencem ao tenant.
-  let dialogRows: Array<{ id: string; title: string | null; username: string | null }> = [];
+  let dialogRows: Array<{ id: string; account_id: string; title: string | null; username: string | null }> = [];
   if (input.dialogIds && input.dialogIds.length > 0) {
     const { data, error } = await supabase
       .from("mtproto_dialogs")
-      .select("id, title, username, mtproto_accounts!inner(tenant_id)")
+      .select("id, account_id, title, username, mtproto_accounts!inner(tenant_id)")
       .in("id", input.dialogIds)
       .eq("mtproto_accounts.tenant_id", tenantId);
     if (error) throw new Error(`Failed to load dialogs: ${error.message}`);
@@ -113,15 +193,6 @@ export async function createCampaign(input: {
   const totalTargets = valid.length + invalid.length + dialogRows.length;
   if (totalTargets === 0) {
     throw new Error("Campanha sem alvos: cole uma lista ou selecione contatos/grupos.");
-  }
-
-  // Valida recurrence: se setado, mínimo 6h (anti-ban). null = não recorrente.
-  let recurrenceHours: number | null = null;
-  if (input.recurrenceHours != null && input.recurrenceHours > 0) {
-    if (input.recurrenceHours < 6) {
-      throw new Error("Mínimo 6 horas entre execuções (anti-ban).");
-    }
-    recurrenceHours = Math.floor(input.recurrenceHours);
   }
 
   const { data: campaign, error: cErr } = await supabase
@@ -136,6 +207,7 @@ export async function createCampaign(input: {
       status: "draft",
       failed_count: invalid.length,
       recurrence_hours: recurrenceHours,
+      is_global: false,
     })
     .select("id")
     .single();
@@ -158,9 +230,10 @@ export async function createCampaign(input: {
     ...dialogRows.map((d) => ({
       campaign_id: campaign.id,
       target_identifier: d.username ?? d.title ?? d.id,
-      target_type: "username" as const, // ignorado pelo runner quando dialog_id está setado
+      target_type: "username" as const,
       status: "pending" as const,
       dialog_id: d.id,
+      account_id: d.account_id,
     })),
   ];
   if (rows.length) await supabase.from("mtproto_targets").insert(rows);

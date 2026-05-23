@@ -59,6 +59,7 @@ export function MtprotoCampaignForm() {
   const [delayMax, setDelayMax] = useState(45);
   const [recurrenceEnabled, setRecurrenceEnabled] = useState(false);
   const [recurrenceHours, setRecurrenceHours] = useState(24);
+  const [isGlobal, setIsGlobal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
@@ -139,10 +140,11 @@ export function MtprotoCampaignForm() {
       return;
     }
     if (
+      !isGlobal &&
       targetsRaw.trim().length === 0 &&
       selectedDialogIds.size === 0
     ) {
-      setError("Cole uma lista de alvos OU selecione contatos/grupos abaixo.");
+      setError("Cole uma lista de alvos OU selecione contatos/grupos abaixo OU ative o disparo global.");
       return;
     }
     if (recurrenceEnabled && recurrenceHours < 6) {
@@ -154,11 +156,12 @@ export function MtprotoCampaignForm() {
         const { campaignId } = await createCampaign({
           name,
           message,
-          targetsRaw,
+          targetsRaw: isGlobal ? "" : targetsRaw,
           delayMin,
           delayMax,
-          dialogIds: Array.from(selectedDialogIds),
+          dialogIds: isGlobal ? [] : Array.from(selectedDialogIds),
           recurrenceHours: recurrenceEnabled ? recurrenceHours : null,
+          global: isGlobal,
         });
         if (launch) await launchCampaign(campaignId);
         router.push(`/dashboard/automations/campaigns/${campaignId}`);
@@ -211,20 +214,57 @@ export function MtprotoCampaignForm() {
           className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white"
         />
       </div>
-      <div>
-        <label className="text-white/70 text-sm block mb-1">
-          Lista de alvos (opcional, um por linha — @username ou +telefone)
+
+      {/* Disparo global */}
+      <div className="border border-amber-500/30 rounded-lg p-4 bg-amber-500/5 space-y-2">
+        <label className="flex items-start gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={isGlobal}
+            onChange={(e) => setIsGlobal(e.target.checked)}
+            className="accent-amber-400 mt-1"
+          />
+          <div>
+            <div className="text-white text-sm font-medium">
+              🌍 Disparo global — todas as contas, todos os contatos/DMs/grupos meus/canais meus
+            </div>
+            <div className="text-white/60 text-xs mt-1 leading-relaxed">
+              Quando ativo, ignora a lista de alvos e a seleção manual. Cada conta MTProto
+              conectada dispara a mesma mensagem pros próprios contatos, DMs, grupos onde
+              você é admin e canais que você é dono. <b>Não inclui</b> grupos/canais onde
+              você só participa (filtro de segurança fixo).
+            </div>
+            {isGlobal && (
+              <div className="text-amber-300 text-xs mt-2 leading-relaxed">
+                ⚠️ <b>Risco alto de ban:</b> mesma mensagem saindo de várias contas suas no
+                mesmo intervalo é o padrão clássico de detecção de spam do Telegram. Use
+                delays grandes (60-120s) e considere ativar a recorrência só após confirmar
+                que a primeira execução foi bem.
+              </div>
+            )}
+          </div>
         </label>
-        <textarea
-          value={targetsRaw}
-          onChange={(e) => setTargetsRaw(e.target.value)}
-          rows={4}
-          className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white font-mono text-sm"
-          placeholder="@user1&#10;@user2&#10;+5511999998888"
-        />
       </div>
 
-      {/* Seletor de dialogs */}
+      {!isGlobal && (
+        <>
+          <div>
+            <label className="text-white/70 text-sm block mb-1">
+              Lista de alvos (opcional, um por linha — @username ou +telefone)
+            </label>
+            <textarea
+              value={targetsRaw}
+              onChange={(e) => setTargetsRaw(e.target.value)}
+              rows={4}
+              className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white font-mono text-sm"
+              placeholder="@user1&#10;@user2&#10;+5511999998888"
+            />
+          </div>
+        </>
+      )}
+
+      {/* Seletor de dialogs — escondido em disparo global */}
+      {!isGlobal && (
       <div className="border border-white/10 rounded-lg p-4 bg-white/[0.02] space-y-3">
         <div className="flex items-center justify-between">
           <div>
@@ -376,6 +416,7 @@ export function MtprotoCampaignForm() {
           </>
         )}
       </div>
+      )}
 
       <div className="flex gap-4">
         <div className="flex-1">

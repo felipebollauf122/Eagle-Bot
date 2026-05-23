@@ -15,6 +15,13 @@ export interface CampaignTargetRow {
     peerType: "user" | "chat" | "channel";
     peerAccessHash: string | null;
   };
+  /**
+   * Quando setado, força essa conta específica a enviar (ignora round-robin
+   * do pool). Usado em campanhas globais — cada target já vem com a conta
+   * dona do dialog. Se a conta estiver indisponível (flood_wait/banned), o
+   * target é pulado naquele tick e retentado depois.
+   */
+  pinnedAccountId?: string;
 }
 
 export interface RunnerDeps {
@@ -71,8 +78,26 @@ export class CampaignRunner {
 
     const pending = targets.filter((t) => t.status === "pending");
     for (const target of pending) {
-      const account = this.pool.next();
+      // Se o target tem conta pré-atribuída (campanha global), usa SÓ
+      // ela — não cai pra outra conta no fallback porque o access_hash
+      // do dialog dela não vale pra outras contas.
+      const isPinned = !!target.pinnedAccountId;
+      const account = isPinned
+        ? this.pool.getById(target.pinnedAccountId!)
+        : this.pool.next();
       if (!account) {
+        if (isPinned) {
+          // Conta dona desse target tá indisponível — pula este target e
+          // segue a campanha. Outras contas ainda podem processar os
+          // próprios targets.
+          await this.deps.markTargetFailed(
+            target.id,
+            target.pinnedAccountId!,
+            "pinned_account_unavailable",
+          );
+          await this.deps.incrementCounters(this.cfg.campaignId, "failed");
+          continue;
+        }
         await this.deps.setCampaignStatus(this.cfg.campaignId, "paused");
         return;
       }
@@ -85,23 +110,34 @@ export class CampaignRunner {
         const floodSeconds = extractFloodWait(err);
         if (floodSeconds !== null) {
           this.pool.markFloodWait(account.id, floodSeconds);
-          const nextAccount = this.pool.next();
-          if (!nextAccount) {
-            await this.deps.setCampaignStatus(this.cfg.campaignId, "paused");
-            return;
-          }
-          try {
-            await this.deps.sendMessage(nextAccount.id, target, this.cfg.messageText);
-            await this.deps.markTargetSent(target.id, nextAccount.id);
-            await this.deps.incrementCounters(this.cfg.campaignId, "sent");
-          } catch (err2) {
-            if (isFatalAccountError(err2)) this.pool.markBanned(nextAccount.id);
+          // Em targets pinned não dá pra trocar de conta (access_hash
+          // não bate). Marca como falha e segue.
+          if (isPinned) {
             await this.deps.markTargetFailed(
               target.id,
-              nextAccount.id,
-              err2 instanceof Error ? err2.message : String(err2),
+              account.id,
+              `flood_wait_${floodSeconds}s`,
             );
             await this.deps.incrementCounters(this.cfg.campaignId, "failed");
+          } else {
+            const nextAccount = this.pool.next();
+            if (!nextAccount) {
+              await this.deps.setCampaignStatus(this.cfg.campaignId, "paused");
+              return;
+            }
+            try {
+              await this.deps.sendMessage(nextAccount.id, target, this.cfg.messageText);
+              await this.deps.markTargetSent(target.id, nextAccount.id);
+              await this.deps.incrementCounters(this.cfg.campaignId, "sent");
+            } catch (err2) {
+              if (isFatalAccountError(err2)) this.pool.markBanned(nextAccount.id);
+              await this.deps.markTargetFailed(
+                target.id,
+                nextAccount.id,
+                err2 instanceof Error ? err2.message : String(err2),
+              );
+              await this.deps.incrementCounters(this.cfg.campaignId, "failed");
+            }
           }
         } else {
           if (isFatalAccountError(err)) this.pool.markBanned(account.id);
