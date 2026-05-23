@@ -390,6 +390,14 @@ async function handleCampaignRun(campaignId: string): Promise<void> {
           .update({ [field]: current + 1 })
           .eq("id", id);
       },
+      getCampaignStatus: async (id) => {
+        const { data } = await supabase
+          .from("mtproto_campaigns")
+          .select("status")
+          .eq("id", id)
+          .single();
+        return (data?.status as string | undefined) ?? null;
+      },
       setCampaignStatus: async (id, status) => {
         const patch: Record<string, unknown> = { status };
         if (status === "running" && !campaign.started_at) {

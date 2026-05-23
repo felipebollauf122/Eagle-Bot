@@ -37,6 +37,11 @@ export interface RunnerDeps {
     campaignId: string,
     status: "running" | "paused" | "completed" | "failed",
   ) => Promise<void>;
+  /**
+   * Lê status atual da campanha no DB. Runner usa pra abortar mid-loop
+   * caso o usuário pause manualmente pela UI.
+   */
+  getCampaignStatus: (campaignId: string) => Promise<string | null>;
   delay: (ms: number) => Promise<void>;
 }
 
@@ -78,6 +83,12 @@ export class CampaignRunner {
 
     const pending = targets.filter((t) => t.status === "pending");
     for (const target of pending) {
+      // Verifica se o usuário pausou pela UI antes de cada envio.
+      const liveStatus = await this.deps.getCampaignStatus(this.cfg.campaignId);
+      if (liveStatus === "paused" || liveStatus === "failed") {
+        console.log(`[runner] campaign ${this.cfg.campaignId} stopped mid-loop: status=${liveStatus}`);
+        return;
+      }
       // Se o target tem conta pré-atribuída (campanha global), usa SÓ
       // ela — não cai pra outra conta no fallback porque o access_hash
       // do dialog dela não vale pra outras contas.

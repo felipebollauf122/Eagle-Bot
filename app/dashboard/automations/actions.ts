@@ -336,3 +336,21 @@ export async function launchCampaign(campaignId: string): Promise<void> {
   revalidatePath("/dashboard/automations");
   revalidatePath(`/dashboard/automations/campaigns/${campaignId}`);
 }
+
+/**
+ * Pausa imediata: marca status='paused' no DB. O runner verifica isso entre
+ * cada envio e aborta o loop. Targets pending continuam pending e podem ser
+ * retomados com launchCampaign. Recorrência também é pausada (não dispara
+ * próximo ciclo enquanto status='paused').
+ */
+export async function pauseCampaign(campaignId: string): Promise<void> {
+  const tenantId = await currentTenantId();
+  const supabase = await createClient();
+  await supabase
+    .from("mtproto_campaigns")
+    .update({ status: "paused" })
+    .eq("id", campaignId)
+    .eq("tenant_id", tenantId);
+  revalidatePath("/dashboard/automations");
+  revalidatePath(`/dashboard/automations/campaigns/${campaignId}`);
+}

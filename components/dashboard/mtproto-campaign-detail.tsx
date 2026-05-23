@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { launchCampaign } from "@/app/dashboard/automations/actions";
+import { launchCampaign, pauseCampaign } from "@/app/dashboard/automations/actions";
 
 interface Campaign {
   id: string;
@@ -86,6 +86,14 @@ export function MtprotoCampaignDetail({
             className="px-4 py-2 rounded bg-(--accent) text-black font-medium"
           >
             {campaign.status === "paused" ? "Retomar" : "Disparar"}
+          </button>
+        )}
+        {(campaign.status === "running" || campaign.status === "scheduled") && (
+          <button
+            onClick={() => startTransition(() => pauseCampaign(campaignId))}
+            className="px-4 py-2 rounded border border-red-500/40 text-red-300 hover:bg-red-500/10 font-medium"
+          >
+            Pausar
           </button>
         )}
       </div>
