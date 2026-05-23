@@ -1,6 +1,8 @@
 import { CreateBotForm } from "@/components/dashboard/create-bot-form";
+import { isOwner } from "@/lib/actions/owner-actions";
 
-export default function NewBotPage() {
+export default async function NewBotPage() {
+  const owner = await isOwner();
   return (
     <div>
       <div className="mb-8">
@@ -15,7 +17,7 @@ export default function NewBotPage() {
           Conecte seu bot do Telegram para começar a vender
         </p>
       </div>
-      <CreateBotForm />
+      <CreateBotForm isOwner={owner} />
     </div>
   );
 }

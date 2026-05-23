@@ -5,9 +5,10 @@ import { createClient } from "@/lib/supabase/client";
 
 interface SidebarProps {
   isAdmin?: boolean;
+  isOwner?: boolean;
 }
 
-export function Sidebar({ isAdmin }: SidebarProps) {
+export function Sidebar({ isAdmin, isOwner }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
@@ -61,17 +62,19 @@ export function Sidebar({ isAdmin }: SidebarProps) {
           </div>
           Meus Bots
         </a>
-        <a
-          href="/dashboard/automations"
-          className={`nav-item ${isAutomationsActive ? "active" : ""}`}
-        >
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isAutomationsActive ? "bg-(--accent)/15" : "bg-white/4"}`} style={isAutomationsActive ? { boxShadow: "0 0 12px -4px rgba(16,185,129,0.3)" } : {}}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-            </svg>
-          </div>
-          Automações
-        </a>
+        {isOwner && (
+          <a
+            href="/dashboard/automations"
+            className={`nav-item ${isAutomationsActive ? "active" : ""}`}
+          >
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isAutomationsActive ? "bg-(--accent)/15" : "bg-white/4"}`} style={isAutomationsActive ? { boxShadow: "0 0 12px -4px rgba(16,185,129,0.3)" } : {}}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
+            </div>
+            Automações
+          </a>
+        )}
         {isAdmin && (
           <>
             <div className="my-4 mx-2 h-px bg-linear-to-r from-transparent via-(--border-default) to-transparent" />

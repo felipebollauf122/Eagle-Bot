@@ -1,12 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { MtprotoCampaignDetail } from "@/components/dashboard/mtproto-campaign-detail";
 import { notFound } from "next/navigation";
+import { isOwner } from "@/lib/actions/owner-actions";
 
 export default async function CampaignDetailPage({
   params,
 }: {
   params: Promise<{ campaignId: string }>;
 }) {
+  if (!(await isOwner())) notFound();
   const { campaignId } = await params;
   const supabase = await createClient();
   const { data: campaign } = await supabase

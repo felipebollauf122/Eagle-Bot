@@ -1,11 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { MtprotoAccounts } from "@/components/dashboard/mtproto-accounts";
 import { MtprotoCampaignList } from "@/components/dashboard/mtproto-campaign-list";
+import { isOwner } from "@/lib/actions/owner-actions";
+import { notFound } from "next/navigation";
 
 export default async function AutomationsPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
+  if (!(await isOwner())) notFound();
 
   const { data: accounts } = await supabase
     .from("mtproto_accounts")

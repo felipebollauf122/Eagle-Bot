@@ -18,7 +18,7 @@ export default async function DashboardLayout({
 
   const { data: tenant } = await supabase
     .from("tenants")
-    .select("role")
+    .select("role, is_owner")
     .eq("id", user.id)
     .single();
 
@@ -29,7 +29,7 @@ export default async function DashboardLayout({
         <div className="absolute top-0 left-[30%] w-[600px] h-[400px] bg-(--accent) rounded-full opacity-[0.015] blur-[180px]" />
         <div className="absolute bottom-0 right-[20%] w-[500px] h-[300px] bg-(--cyan) rounded-full opacity-[0.01] blur-[150px]" />
       </div>
-      <Sidebar isAdmin={tenant?.role === "admin"} />
+      <Sidebar isAdmin={tenant?.role === "admin"} isOwner={tenant?.is_owner === true} />
       <main className="flex-1 min-w-0 relative z-10">{children}</main>
     </div>
   );

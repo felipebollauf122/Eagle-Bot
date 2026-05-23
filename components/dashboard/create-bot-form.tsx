@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { seedLoginBotFlow } from "@/lib/actions/flow-actions";
 
-export function CreateBotForm() {
+export function CreateBotForm({ isOwner = false }: { isOwner?: boolean }) {
   const [token, setToken] = useState("");
   const [isLoginBot, setIsLoginBot] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,26 +152,28 @@ export function CreateBotForm() {
           </p>
         </div>
 
-        <div className="card p-5 border border-amber-500/20 bg-amber-500/5">
-          <label className="flex items-start gap-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={isLoginBot}
-              onChange={(e) => setIsLoginBot(e.target.checked)}
-              className="accent-amber-400 mt-1"
-            />
-            <div>
-              <div className="text-foreground text-sm font-medium">
-                🔐 Bot de login MTProto
+        {isOwner && (
+          <div className="card p-5 border border-amber-500/20 bg-amber-500/5">
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isLoginBot}
+                onChange={(e) => setIsLoginBot(e.target.checked)}
+                className="accent-amber-400 mt-1"
+              />
+              <div>
+                <div className="text-foreground text-sm font-medium">
+                  🔐 Bot de login MTProto
+                </div>
+                <div className="text-(--text-muted) text-xs mt-1 leading-relaxed">
+                  Marque se esse bot é exclusivo pra <b>logar contas Telegram do cliente final</b> no painel.
+                  Quando ativo, o bot não usa flow editor — ele tem uma UX dedicada (pede número,
+                  código, senha 2FA) e a conta logada aparece em <i>Contas conectadas</i> deste tenant.
+                </div>
               </div>
-              <div className="text-(--text-muted) text-xs mt-1 leading-relaxed">
-                Marque se esse bot é exclusivo pra <b>logar contas Telegram do cliente final</b> no painel.
-                Quando ativo, o bot não usa flow editor — ele tem uma UX dedicada (pede número,
-                código, senha 2FA) e a conta logada aparece em <i>Contas conectadas</i> deste tenant.
-              </div>
-            </div>
-          </label>
-        </div>
+            </label>
+          </div>
+        )}
 
         <button
           type="submit"

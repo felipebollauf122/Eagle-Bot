@@ -1,12 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import { MtprotoInbox } from "@/components/dashboard/mtproto-inbox";
+import { isOwner } from "@/lib/actions/owner-actions";
 
 export default async function InboxPage({
   params,
 }: {
   params: Promise<{ accountId: string }>;
 }) {
+  if (!(await isOwner())) notFound();
   const { accountId } = await params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
