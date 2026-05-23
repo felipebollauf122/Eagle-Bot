@@ -137,3 +137,32 @@ export async function toggleProtectContent(botId: string, enabled: boolean) {
   invalidateBotCache(botId);
   return { success: true };
 }
+
+/**
+ * Apaga um bot permanentemente. Tira o webhook do Telegram antes (best-effort)
+ * e depois deleta o registro — FKs com cascade limpam flows/leads/transactions/
+ * blacklist/etc. Tenant precisa ser o dono (admins podem qualquer bot).
+ */
+export async function deleteBot(botId: string): Promise<{ success: true }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
+  if (!bot) throw new Error("Bot not found");
+
+  // Delega pro server (tem service role + lida com webhook do Telegram)
+  const serverUrl = (process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "http://localhost:3001").replace(/\/+$/, "");
+  const res = await fetch(`${serverUrl}/api/bots/${botId}/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody.error || `delete failed (${res.status})`);
+  }
+  return { success: true };
+}

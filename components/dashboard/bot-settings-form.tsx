@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { saveBotSettings, updateBotAvatar, toggleBlackEnabled, toggleProtectContent } from "@/lib/actions/bot-settings-actions";
+import { useRouter } from "next/navigation";
+import { saveBotSettings, updateBotAvatar, toggleBlackEnabled, toggleProtectContent, deleteBot } from "@/lib/actions/bot-settings-actions";
 import { uploadMedia } from "@/lib/actions/upload-actions";
 import type { Bot } from "@/lib/types/database";
 
@@ -19,8 +20,13 @@ const sections = [
 ];
 
 export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) {
+  const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const expectedConfirm = bot.bot_username ?? bot.id.slice(0, 8);
   const [isActive, setIsActive] = useState(bot.is_active);
   const [activating, setActivating] = useState(false);
   const [activateError, setActivateError] = useState<string | null>(null);
@@ -529,6 +535,57 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
             Salvo com sucesso!
           </span>
         )}
+      </div>
+
+      {/* Danger zone — excluir bot */}
+      <div className="mt-12 card p-6 border border-red-500/30 bg-red-500/5">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-9 h-9 rounded-lg bg-red-500/15 flex items-center justify-center">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-2 14a2 2 0 01-2 2H9a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-red-300 font-semibold text-sm">Excluir bot</h2>
+            <p className="text-(--text-muted) text-xs">
+              Apaga permanentemente o bot, seus flows, leads, transações e blacklist. Não dá pra desfazer.
+            </p>
+          </div>
+        </div>
+
+        <p className="text-(--text-secondary) text-sm mb-3">
+          Pra confirmar, digite <code className="text-red-300 bg-red-500/10 px-1.5 py-0.5 rounded">{expectedConfirm}</code> abaixo:
+        </p>
+        <input
+          type="text"
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value)}
+          placeholder={expectedConfirm}
+          className="input font-mono text-sm mb-3"
+        />
+        {deleteError && (
+          <p className="text-red-400 text-xs mb-3">{deleteError}</p>
+        )}
+        <button
+          disabled={confirmText !== expectedConfirm || deleting}
+          onClick={async () => {
+            if (confirmText !== expectedConfirm) return;
+            setDeleting(true);
+            setDeleteError(null);
+            try {
+              await deleteBot(bot.id);
+              router.push("/dashboard");
+              router.refresh();
+            } catch (err) {
+              setDeleteError(err instanceof Error ? err.message : "erro ao excluir");
+              setDeleting(false);
+            }
+          }}
+          className="px-4 py-2 rounded-md bg-red-500/15 border border-red-500/40 text-red-300 text-sm font-medium hover:bg-red-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {deleting ? "Excluindo..." : "Excluir bot permanentemente"}
+        </button>
       </div>
     </div>
   );

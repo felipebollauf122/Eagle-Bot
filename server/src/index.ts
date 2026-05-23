@@ -284,6 +284,51 @@ app.post("/api/bots/:botId/invalidate-cache", async (_req, res) => {
   res.json({ success: true });
 });
 
+// Delete bot — tira webhook do Telegram + apaga registro do DB.
+// Tabelas com FK cascade (flows, leads, transactions, blacklist, etc.) são
+// limpas automaticamente. mtproto_accounts.created_via_bot_id e
+// tenant_lead_identity.{first,last}_bot_id ficam set null. Tokens/segredos
+// nunca são logados.
+app.post("/api/bots/:botId/delete", async (req, res) => {
+  try {
+    const { botId } = req.params;
+    const { data: bot } = await supabase
+      .from("bots")
+      .select("id, telegram_token")
+      .eq("id", botId)
+      .single();
+    if (!bot) {
+      res.status(404).json({ error: "Bot not found" });
+      return;
+    }
+    // Tira webhook do Telegram (best-effort; se o token tá inválido tudo bem)
+    try {
+      const telegram = new TelegramApi(bot.telegram_token);
+      await telegram.deleteWebhook();
+    } catch (err) {
+      console.warn(`[delete-bot] deleteWebhook falhou (não-fatal):`, err);
+    }
+    // Apaga o bot — cascades limpam o resto
+    const { error } = await supabase.from("bots").delete().eq("id", botId);
+    if (error) {
+      console.error("[delete-bot] supabase delete failed:", error);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+    botCache.invalidate(botId);
+    flowCache.invalidate(botId);
+    try {
+      const { invalidateLoginFlowCache } = await import("./webhook/mtproto-login-renderer.js");
+      invalidateLoginFlowCache(botId);
+    } catch { /* não-fatal */ }
+    console.log(`[delete-bot] bot ${botId} deletado`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Failed to delete bot:", error);
+    res.status(500).json({ error: "Failed to delete bot" });
+  }
+});
+
 // Deactivate bot (remove webhook)
 app.post("/api/bots/:botId/deactivate", async (req, res) => {
   try {
