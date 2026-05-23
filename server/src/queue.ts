@@ -405,6 +405,22 @@ export function startWorkers(): void {
     })();
   }, 30_000);
 
+  // Cleanup diário de inbox messages: apaga registros com mais de 7 dias.
+  async function cleanupInboxMessages(): Promise<void> {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { error, count } = await supabase
+      .from("mtproto_incoming_messages")
+      .delete({ count: "exact" })
+      .lt("received_at", cutoff);
+    if (error) {
+      console.error("[inbox-cleanup] error:", error);
+      return;
+    }
+    if (count && count > 0) console.log(`[inbox-cleanup] removed ${count} msgs older than 7d`);
+  }
+  setInterval(() => cleanupInboxMessages(), 24 * 60 * 60 * 1000);
+  setTimeout(() => cleanupInboxMessages(), 60_000);
+
   // EvPay status poller — fallback caso o webhook automático do Yvepay
   // não dispare. Roda a cada 5s, mas só consulta cada transação no
   // intervalo apropriado por idade (5s pra recém-criadas, 30s/2min

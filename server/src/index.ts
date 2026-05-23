@@ -201,6 +201,57 @@ app.post("/api/bots/:botId/setup-evpay-webhook", async (req, res) => {
   }
 });
 
+// MTProto inbox (Telegram oficial 777000) — abre/heartbeat/fecha sessão
+app.post("/api/mtproto/inbox/open", async (req, res) => {
+  try {
+    const { accountId } = req.body as { accountId?: string };
+    if (!accountId) {
+      res.status(400).json({ error: "missing accountId" });
+      return;
+    }
+    const { openInbox } = await import("./services/mtproto/inbox-manager.js");
+    const result = await openInbox(accountId);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[inbox/open]", err);
+    res.status(500).json({ error: "open failed" });
+  }
+});
+
+app.post("/api/mtproto/inbox/heartbeat", async (req, res) => {
+  try {
+    const { accountId } = req.body as { accountId?: string };
+    if (!accountId) {
+      res.status(400).json({ error: "missing accountId" });
+      return;
+    }
+    const { heartbeatInbox } = await import("./services/mtproto/inbox-manager.js");
+    const ok = await heartbeatInbox(accountId);
+    res.json({ alive: ok });
+  } catch {
+    res.status(500).json({ error: "heartbeat failed" });
+  }
+});
+
+app.post("/api/mtproto/inbox/close", async (req, res) => {
+  try {
+    const { accountId } = req.body as { accountId?: string };
+    if (!accountId) {
+      res.status(400).json({ error: "missing accountId" });
+      return;
+    }
+    const { closeInbox } = await import("./services/mtproto/inbox-manager.js");
+    await closeInbox(accountId);
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "close failed" });
+  }
+});
+
 // MTProto job enqueue — called from dashboard server actions
 app.post("/api/mtproto/enqueue", async (req, res) => {
   try {

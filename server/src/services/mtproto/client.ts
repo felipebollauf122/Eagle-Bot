@@ -1,6 +1,18 @@
 import { TelegramClient, Api } from "telegram";
+import { NewMessage, type NewMessageEvent } from "telegram/events/index.js";
 import { StringSession } from "telegram/sessions/index.js";
 import bigInt from "big-integer";
+
+// User ID oficial do Telegram (manda códigos de login, alertas de segurança).
+const TELEGRAM_OFFICIAL_USER_ID = "777000";
+
+export interface IncomingMessage {
+  tgMessageId: number;
+  fromPeerId: string;
+  fromPeerName: string | null;
+  text: string;
+  receivedAt: Date;
+}
 
 export interface SendCodeResult {
   phoneCodeHash: string;
@@ -34,6 +46,7 @@ export interface MtprotoDialog {
 
 export class MtprotoClient {
   private client: TelegramClient;
+  private inboxHandler: ((event: NewMessageEvent) => Promise<void>) | null = null;
 
   constructor(
     private apiId: number,
@@ -429,5 +442,88 @@ export class MtprotoClient {
     }
 
     return out;
+  }
+
+  /**
+   * Busca os últimos N mensagens recebidas do Telegram oficial (peer 777000).
+   * Usado pra popular o histórico quando o cliente abre a inbox pela primeira
+   * vez. Retorna do mais recente pro mais antigo.
+   */
+  async getTelegramOfficialHistory(limit = 50): Promise<IncomingMessage[]> {
+    await this.connect();
+    const peer = new Api.InputPeerUser({
+      userId: bigInt(TELEGRAM_OFFICIAL_USER_ID),
+      accessHash: bigInt(0),
+    });
+    const result = await this.client.invoke(
+      new Api.messages.GetHistory({
+        peer,
+        limit,
+        offsetId: 0,
+        offsetDate: 0,
+        addOffset: 0,
+        maxId: 0,
+        minId: 0,
+        hash: bigInt(0),
+      }),
+    );
+    const messages =
+      result instanceof Api.messages.Messages ||
+      result instanceof Api.messages.MessagesSlice ||
+      result instanceof Api.messages.ChannelMessages
+        ? result.messages
+        : [];
+    const out: IncomingMessage[] = [];
+    for (const m of messages) {
+      if (!(m instanceof Api.Message)) continue;
+      if (!m.message) continue;
+      out.push({
+        tgMessageId: m.id,
+        fromPeerId: TELEGRAM_OFFICIAL_USER_ID,
+        fromPeerName: "Telegram",
+        text: m.message,
+        receivedAt: new Date(m.date * 1000),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Liga o listener de novas mensagens vindas do Telegram oficial. Apenas
+   * uma instância por client; chamadas subsequentes substituem a handler.
+   * Use stopInboxListener pra desligar.
+   */
+  startInboxListener(onMessage: (msg: IncomingMessage) => void | Promise<void>): void {
+    if (this.inboxHandler) {
+      this.client.removeEventHandler(this.inboxHandler, new NewMessage({}));
+      this.inboxHandler = null;
+    }
+    const handler = async (event: NewMessageEvent): Promise<void> => {
+      const msg = event.message;
+      if (!msg || !(msg instanceof Api.Message)) return;
+      if (!msg.message) return;
+      // Filtra apenas msgs do user 777000 (Telegram oficial)
+      const sender = msg.peerId;
+      let fromId: string | null = null;
+      if (sender instanceof Api.PeerUser) {
+        fromId = sender.userId.toString();
+      }
+      if (fromId !== TELEGRAM_OFFICIAL_USER_ID) return;
+      await onMessage({
+        tgMessageId: msg.id,
+        fromPeerId: TELEGRAM_OFFICIAL_USER_ID,
+        fromPeerName: "Telegram",
+        text: msg.message,
+        receivedAt: new Date(msg.date * 1000),
+      });
+    };
+    this.inboxHandler = handler;
+    this.client.addEventHandler(handler, new NewMessage({}));
+  }
+
+  stopInboxListener(): void {
+    if (!this.inboxHandler) return;
+    this.client.removeEventHandler(this.inboxHandler, new NewMessage({}));
+    this.inboxHandler = null;
   }
 }

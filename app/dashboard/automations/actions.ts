@@ -337,6 +337,78 @@ export async function launchCampaign(campaignId: string): Promise<void> {
   revalidatePath(`/dashboard/automations/campaigns/${campaignId}`);
 }
 
+async function postBotServer(path: string, body: unknown): Promise<Response> {
+  const serverUrl = (process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "http://localhost:3001").replace(/\/+$/, "");
+  return fetch(`${serverUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function openMtprotoInbox(accountId: string): Promise<{ ok: boolean; error?: string }> {
+  const tenantId = await currentTenantId();
+  const supabase = await createClient();
+  // RLS guard: garante que a conta é do tenant
+  const { data } = await supabase
+    .from("mtproto_accounts")
+    .select("id")
+    .eq("id", accountId)
+    .eq("tenant_id", tenantId)
+    .single();
+  if (!data) return { ok: false, error: "account not found" };
+  const res = await postBotServer("/api/mtproto/inbox/open", { accountId });
+  if (!res.ok) return { ok: false, error: `server returned ${res.status}` };
+  return { ok: true };
+}
+
+export async function heartbeatMtprotoInbox(accountId: string): Promise<void> {
+  const tenantId = await currentTenantId();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("mtproto_accounts")
+    .select("id")
+    .eq("id", accountId)
+    .eq("tenant_id", tenantId)
+    .single();
+  if (!data) return;
+  await postBotServer("/api/mtproto/inbox/heartbeat", { accountId });
+}
+
+export async function closeMtprotoInbox(accountId: string): Promise<void> {
+  const tenantId = await currentTenantId();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("mtproto_accounts")
+    .select("id")
+    .eq("id", accountId)
+    .eq("tenant_id", tenantId)
+    .single();
+  if (!data) return;
+  await postBotServer("/api/mtproto/inbox/close", { accountId });
+}
+
+export async function listInboxMessages(
+  accountId: string,
+): Promise<Array<{ id: string; tg_message_id: number; text: string | null; received_at: string; from_peer_name: string | null }>> {
+  const tenantId = await currentTenantId();
+  const supabase = await createClient();
+  const { data: account } = await supabase
+    .from("mtproto_accounts")
+    .select("id")
+    .eq("id", accountId)
+    .eq("tenant_id", tenantId)
+    .single();
+  if (!account) return [];
+  const { data } = await supabase
+    .from("mtproto_incoming_messages")
+    .select("id, tg_message_id, text, received_at, from_peer_name")
+    .eq("account_id", accountId)
+    .order("received_at", { ascending: false })
+    .limit(100);
+  return data ?? [];
+}
+
 /**
  * Pausa imediata: marca status='paused' no DB. O runner verifica isso entre
  * cada envio e aborta o loop. Targets pending continuam pending e podem ser

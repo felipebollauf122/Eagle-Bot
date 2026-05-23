@@ -117,22 +117,31 @@ export function MtprotoAccounts({ accounts }: { accounts: Account[] }) {
           </div>
           <div className="flex items-center gap-3">
             {a.status === "active" && (
-              <button
-                onClick={() =>
-                  startTransition(async () => {
-                    try {
-                      await syncAccountDialogs(a.id);
-                      alert("Sincronização iniciada. Em alguns segundos seus contatos/grupos vão aparecer no formulário de campanha.");
-                    } catch (err) {
-                      alert(err instanceof Error ? err.message : "erro");
-                    }
-                  })
-                }
-                className="text-(--accent) hover:underline text-xs"
-                title="Sincroniza contatos, DMs, grupos e canais da conta — pode levar 10-30s em contas grandes"
-              >
-                Sincronizar contatos/grupos
-              </button>
+              <>
+                <a
+                  href={`/dashboard/automations/accounts/${a.id}/inbox`}
+                  className="text-(--accent) hover:underline text-xs"
+                  title="Mensagens recebidas do Telegram oficial (códigos de login, alertas)"
+                >
+                  Mensagens
+                </a>
+                <button
+                  onClick={() =>
+                    startTransition(async () => {
+                      try {
+                        await syncAccountDialogs(a.id);
+                        alert("Sincronização iniciada. Em alguns segundos seus contatos/grupos vão aparecer no formulário de campanha.");
+                      } catch (err) {
+                        alert(err instanceof Error ? err.message : "erro");
+                      }
+                    })
+                  }
+                  className="text-(--accent) hover:underline text-xs"
+                  title="Sincroniza contatos, DMs, grupos e canais da conta — pode levar 10-30s em contas grandes"
+                >
+                  Sincronizar contatos/grupos
+                </button>
+              </>
             )}
             <button
               onClick={() =>
