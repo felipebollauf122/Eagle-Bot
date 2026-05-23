@@ -8,7 +8,7 @@ import {
   CampaignRunner,
   type CampaignTargetRow,
 } from "../services/mtproto/campaign-runner.js";
-import type { MtprotoJobData } from "../queue-mtproto.js";
+import { enqueueMtproto, type MtprotoJobData } from "../queue-mtproto.js";
 
 const liveClients = new Map<string, MtprotoClient>();
 
@@ -73,6 +73,10 @@ async function handleSignIn(accountId: string, phoneNumber: string, code: string
         last_error: null,
       });
       await supabase.from("mtproto_auth_sessions").delete().eq("account_id", accountId);
+      // Sync inicial dos dialogs — assim a primeira campanha global já encontra base.
+      await enqueueMtproto({ kind: "account.sync-dialogs", accountId }).catch((err) =>
+        console.error(`[mtproto] failed to enqueue initial sync for ${accountId}:`, err),
+      );
     } else if (result.needsPassword) {
       await supabase
         .from("mtproto_auth_sessions")
@@ -100,6 +104,9 @@ async function handleSubmitPassword(accountId: string, password: string): Promis
         last_error: null,
       });
       await supabase.from("mtproto_auth_sessions").delete().eq("account_id", accountId);
+      await enqueueMtproto({ kind: "account.sync-dialogs", accountId }).catch((err) =>
+        console.error(`[mtproto] failed to enqueue initial sync for ${accountId}:`, err),
+      );
     }
   } catch (err) {
     await updateAccount(accountId, {
@@ -200,6 +207,71 @@ async function handleSyncDialogs(accountId: string): Promise<void> {
   console.log(`[mtproto.sync] account ${accountId}: ${rows.length} dialogs synced`);
 }
 
+async function refreshGlobalCampaignTargets(
+  campaignId: string,
+  tenantId: string,
+): Promise<void> {
+  // Sync inline de todas as contas ativas do tenant antes da run global.
+  // Garante que a campanha pegue contatos novos a cada ciclo recorrente.
+  const { data: accounts } = await supabase
+    .from("mtproto_accounts")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("status", "active");
+  if (!accounts || accounts.length === 0) return;
+
+  for (const acc of accounts) {
+    try {
+      await handleSyncDialogs(acc.id);
+    } catch (err) {
+      console.error(`[mtproto.global-refresh] sync ${acc.id} failed:`, err);
+    }
+  }
+
+  // Rebuild targets: deleta os pending atuais e recria do snapshot fresco.
+  // Não toca em targets já 'sent' do ciclo anterior — esses ficam pra histórico.
+  const accountIds = accounts.map((a) => a.id);
+  const { data: dialogs } = await supabase
+    .from("mtproto_dialogs")
+    .select("id, account_id, title, username")
+    .in("account_id", accountIds)
+    .in("kind", ["contact", "dm", "group_admin", "channel_owner"]);
+  const dialogList = dialogs ?? [];
+  if (dialogList.length === 0) {
+    console.warn(`[mtproto.global-refresh] campaign ${campaignId}: no dialogs found after sync`);
+    return;
+  }
+
+  // Remove pendings antigos e insere o snapshot atual.
+  await supabase
+    .from("mtproto_targets")
+    .delete()
+    .eq("campaign_id", campaignId)
+    .eq("status", "pending");
+
+  const rows = dialogList.map((d) => ({
+    campaign_id: campaignId,
+    target_identifier: d.username ?? d.title ?? d.id,
+    target_type: "username" as const,
+    status: "pending" as const,
+    dialog_id: d.id,
+    account_id: d.account_id,
+  }));
+  for (let i = 0; i < rows.length; i += 500) {
+    const batch = rows.slice(i, i + 500);
+    const { error } = await supabase.from("mtproto_targets").insert(batch);
+    if (error) {
+      console.error(`[mtproto.global-refresh] insert batch failed:`, error);
+      return;
+    }
+  }
+  await supabase
+    .from("mtproto_campaigns")
+    .update({ total_targets: rows.length })
+    .eq("id", campaignId);
+  console.log(`[mtproto.global-refresh] campaign ${campaignId}: ${rows.length} targets refreshed`);
+}
+
 async function handleCampaignRun(campaignId: string): Promise<void> {
   const { data: campaign } = await supabase
     .from("mtproto_campaigns")
@@ -207,6 +279,13 @@ async function handleCampaignRun(campaignId: string): Promise<void> {
     .eq("id", campaignId)
     .single();
   if (!campaign) return;
+
+  // Em campanhas globais, ressincroniza dialogs e regenera targets pendentes
+  // antes do run. Garante que contatos novos entrem na base e contatos
+  // removidos saiam.
+  if (campaign.is_global) {
+    await refreshGlobalCampaignTargets(campaignId, campaign.tenant_id);
+  }
 
   const { data: accountsRaw } = await supabase
     .from("mtproto_accounts")

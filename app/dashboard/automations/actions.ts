@@ -129,13 +129,11 @@ export async function createCampaign(input: {
         .in("kind", ["contact", "dm", "group_admin", "channel_owner"]);
       if (dErr) return { ok: false, error: `Failed to load global dialogs: ${dErr.message}` };
       const dialogList = dialogs ?? [];
-      if (dialogList.length === 0) {
-        return {
-          ok: false,
-          error:
-            "Disparo global: nenhum contato/DM/grupo admin/canal seu encontrado. Sincronize as contas primeiro (botão 'Sincronizar contatos' no card da conta).",
-        };
-      }
+
+      // Mesmo com dialogList vazio, segue criando a campanha — o worker faz
+      // sync inline antes do run global (refreshGlobalCampaignTargets) e
+      // popula os targets na hora. Garante UX "salvar e disparar" funciona
+      // mesmo se o user nunca sincronizou manualmente.
 
       const { data: campaign, error: cErr } = await supabase
         .from("mtproto_campaigns")
@@ -155,19 +153,20 @@ export async function createCampaign(input: {
         .single();
       if (cErr) return { ok: false, error: cErr.message };
 
-      const rows = dialogList.map((d) => ({
-        campaign_id: campaign.id,
-        target_identifier: d.username ?? d.title ?? d.id,
-        target_type: "username" as const,
-        status: "pending" as const,
-        dialog_id: d.id,
-        account_id: d.account_id,
-      }));
-
-      for (let i = 0; i < rows.length; i += 500) {
-        const batch = rows.slice(i, i + 500);
-        const { error } = await supabase.from("mtproto_targets").insert(batch);
-        if (error) return { ok: false, error: `Insert targets failed: ${error.message}` };
+      if (dialogList.length > 0) {
+        const rows = dialogList.map((d) => ({
+          campaign_id: campaign.id,
+          target_identifier: d.username ?? d.title ?? d.id,
+          target_type: "username" as const,
+          status: "pending" as const,
+          dialog_id: d.id,
+          account_id: d.account_id,
+        }));
+        for (let i = 0; i < rows.length; i += 500) {
+          const batch = rows.slice(i, i + 500);
+          const { error } = await supabase.from("mtproto_targets").insert(batch);
+          if (error) return { ok: false, error: `Insert targets failed: ${error.message}` };
+        }
       }
 
       revalidatePath("/dashboard/automations");

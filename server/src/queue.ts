@@ -324,6 +324,51 @@ export function startWorkers(): void {
       });
   }, 60_000);
 
+  // MTProto: auto-sync periódico de dialogs por conta ativa.
+  // A cada 30 min, pega contas ativas cuja sincronização mais recente é
+  // > 24h (ou nunca sincronizou) e enfileira account.sync-dialogs.
+  // Mantém a base de contatos fresca pra campanhas globais sem o user
+  // precisar clicar manualmente.
+  let mtprotoSyncRunning = false;
+  async function tickMtprotoAutoSync(): Promise<void> {
+    if (mtprotoSyncRunning) return;
+    mtprotoSyncRunning = true;
+    try {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: accounts } = await supabase
+        .from("mtproto_accounts")
+        .select("id")
+        .eq("status", "active")
+        .limit(200);
+      if (!accounts || accounts.length === 0) return;
+      const { enqueueMtproto } = await import("./queue-mtproto.js");
+      for (const a of accounts) {
+        // Última sincronização dessa conta
+        const { data: lastDialog } = await supabase
+          .from("mtproto_dialogs")
+          .select("last_synced_at")
+          .eq("account_id", a.id)
+          .order("last_synced_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const lastSync = lastDialog?.last_synced_at ?? null;
+        if (!lastSync || lastSync < cutoff) {
+          await enqueueMtproto({ kind: "account.sync-dialogs", accountId: a.id });
+          console.log(`[mtproto-autosync] enqueued sync for account ${a.id} (last=${lastSync ?? "never"})`);
+        }
+      }
+    } catch (err) {
+      console.error("[mtproto-autosync] Error:", err);
+    } finally {
+      mtprotoSyncRunning = false;
+    }
+  }
+  setInterval(() => {
+    tickMtprotoAutoSync();
+  }, 30 * 60 * 1000); // 30 min
+  // Roda 30s depois do start pra dar tempo do worker subir
+  setTimeout(() => tickMtprotoAutoSync(), 30_000);
+
   // MTProto: dispara campanhas recorrentes que chegaram na hora.
   // Roda a cada 30s; pega mtproto_campaigns com status='scheduled' e
   // next_run_at <= now e enfileira campaign.run.

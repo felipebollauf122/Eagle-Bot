@@ -237,6 +237,8 @@ export function MtprotoCampaignForm() {
               conectada dispara a mesma mensagem pros próprios contatos, DMs, grupos onde
               você é admin e canais que você é dono. <b>Não inclui</b> grupos/canais onde
               você só participa (filtro de segurança fixo).
+              {" "}A base de contatos é <b>sincronizada automaticamente</b>: ao conectar a conta,
+              antes de cada disparo global, e em loop a cada 24h.
             </div>
             {isGlobal && (
               <div className="text-amber-300 text-xs mt-2 leading-relaxed">
