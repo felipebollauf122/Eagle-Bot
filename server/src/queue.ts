@@ -324,6 +324,42 @@ export function startWorkers(): void {
       });
   }, 60_000);
 
+  // MTProto: dispara campanhas recorrentes que chegaram na hora.
+  // Roda a cada 30s; pega mtproto_campaigns com status='scheduled' e
+  // next_run_at <= now e enfileira campaign.run.
+  let recurrentMtprotoRunning = false;
+  setInterval(() => {
+    if (recurrentMtprotoRunning) return;
+    recurrentMtprotoRunning = true;
+    (async () => {
+      try {
+        const { data: due } = await supabase
+          .from("mtproto_campaigns")
+          .select("id")
+          .eq("status", "scheduled")
+          .not("recurrence_hours", "is", null)
+          .lte("next_run_at", new Date().toISOString())
+          .limit(20);
+        if (!due || due.length === 0) return;
+        const { enqueueMtproto } = await import("./queue-mtproto.js");
+        for (const c of due) {
+          // Marca como queued antes de enfileirar pra evitar tick duplicado
+          await supabase
+            .from("mtproto_campaigns")
+            .update({ status: "running" })
+            .eq("id", c.id)
+            .eq("status", "scheduled");
+          await enqueueMtproto({ kind: "campaign.run", campaignId: c.id });
+          console.log(`[mtproto-recurrent] dispatched campaign ${c.id}`);
+        }
+      } catch (err) {
+        console.error("[mtproto-recurrent] Error:", err);
+      } finally {
+        recurrentMtprotoRunning = false;
+      }
+    })();
+  }, 30_000);
+
   // EvPay status poller — fallback caso o webhook automático do Yvepay
   // não dispare. Roda a cada 5s, mas só consulta cada transação no
   // intervalo apropriado por idade (5s pra recém-criadas, 30s/2min

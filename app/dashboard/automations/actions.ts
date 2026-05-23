@@ -90,6 +90,7 @@ export async function createCampaign(input: {
   delayMin: number;
   delayMax: number;
   dialogIds?: string[];
+  recurrenceHours?: number | null;
 }): Promise<{ campaignId: string }> {
   const tenantId = await currentTenantId();
   const supabase = await createClient();
@@ -114,6 +115,15 @@ export async function createCampaign(input: {
     throw new Error("Campanha sem alvos: cole uma lista ou selecione contatos/grupos.");
   }
 
+  // Valida recurrence: se setado, mínimo 6h (anti-ban). null = não recorrente.
+  let recurrenceHours: number | null = null;
+  if (input.recurrenceHours != null && input.recurrenceHours > 0) {
+    if (input.recurrenceHours < 6) {
+      throw new Error("Mínimo 6 horas entre execuções (anti-ban).");
+    }
+    recurrenceHours = Math.floor(input.recurrenceHours);
+  }
+
   const { data: campaign, error: cErr } = await supabase
     .from("mtproto_campaigns")
     .insert({
@@ -125,6 +135,7 @@ export async function createCampaign(input: {
       total_targets: totalTargets,
       status: "draft",
       failed_count: invalid.length,
+      recurrence_hours: recurrenceHours,
     })
     .select("id")
     .single();

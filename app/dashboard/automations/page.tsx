@@ -15,7 +15,7 @@ export default async function AutomationsPage() {
 
   const { data: campaigns } = await supabase
     .from("mtproto_campaigns")
-    .select("id, name, status, total_targets, sent_count, failed_count, created_at")
+    .select("id, name, status, total_targets, sent_count, failed_count, created_at, recurrence_hours, next_run_at")
     .eq("tenant_id", user.id)
     .order("created_at", { ascending: false });
 

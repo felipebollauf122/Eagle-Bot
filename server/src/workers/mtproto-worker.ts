@@ -314,6 +314,27 @@ async function handleCampaignRun(campaignId: string): Promise<void> {
         if (status === "completed" || status === "failed") {
           patch.completed_at = new Date().toISOString();
         }
+        // Se a campanha é recorrente E completou: agenda próxima execução
+        // e reseta a campanha de volta pra 'draft' (pronta pro próximo ciclo).
+        if (status === "completed" && campaign.recurrence_hours) {
+          const nextRun = new Date(Date.now() + campaign.recurrence_hours * 60 * 60 * 1000);
+          patch.status = "scheduled";
+          patch.last_run_at = new Date().toISOString();
+          patch.next_run_at = nextRun.toISOString();
+          patch.sent_count = 0;
+          patch.failed_count = 0;
+          patch.started_at = null;
+          patch.completed_at = null;
+          // Reseta targets de 'sent'/'failed' (recuperáveis) pra 'pending'
+          // pra próxima execução. Mantém 'failed' com error_message='invalid_identifier'
+          // (esses foram listados pelo user; não vão funcionar nunca).
+          await supabase
+            .from("mtproto_targets")
+            .update({ status: "pending", account_id: null, sent_at: null, error_message: null })
+            .eq("campaign_id", id)
+            .neq("error_message", "invalid_identifier");
+          console.log(`[mtproto] campaign ${id} is recurrent — next run scheduled at ${nextRun.toISOString()}`);
+        }
         await supabase.from("mtproto_campaigns").update(patch).eq("id", id);
       },
       delay: (ms) => new Promise((r) => setTimeout(r, ms)),

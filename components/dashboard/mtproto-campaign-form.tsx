@@ -55,8 +55,10 @@ export function MtprotoCampaignForm() {
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
   const [targetsRaw, setTargetsRaw] = useState("");
-  const [delayMin, setDelayMin] = useState(30);
-  const [delayMax, setDelayMax] = useState(90);
+  const [delayMin, setDelayMin] = useState(15);
+  const [delayMax, setDelayMax] = useState(45);
+  const [recurrenceEnabled, setRecurrenceEnabled] = useState(false);
+  const [recurrenceHours, setRecurrenceHours] = useState(24);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
@@ -143,6 +145,10 @@ export function MtprotoCampaignForm() {
       setError("Cole uma lista de alvos OU selecione contatos/grupos abaixo.");
       return;
     }
+    if (recurrenceEnabled && recurrenceHours < 6) {
+      setError("Recorrência: mínimo 6 horas entre execuções (anti-ban).");
+      return;
+    }
     startTransition(async () => {
       try {
         const { campaignId } = await createCampaign({
@@ -152,6 +158,7 @@ export function MtprotoCampaignForm() {
           delayMin,
           delayMax,
           dialogIds: Array.from(selectedDialogIds),
+          recurrenceHours: recurrenceEnabled ? recurrenceHours : null,
         });
         if (launch) await launchCampaign(campaignId);
         router.push(`/dashboard/automations/campaigns/${campaignId}`);
@@ -159,6 +166,28 @@ export function MtprotoCampaignForm() {
         setError(err instanceof Error ? err.message : "erro");
       }
     });
+  }
+
+  // Calcula estimativa de duração de uma execução
+  const totalSelected = selectedDialogIds.size + (targetsRaw.trim() ? targetsRaw.trim().split(/[\n,;]+/).filter(Boolean).length : 0);
+  const avgDelaySec = (delayMin + delayMax) / 2;
+  const estimatedSec = Math.max(0, (totalSelected - 1)) * avgDelaySec;
+  const estimatedMin = Math.round(estimatedSec / 60);
+
+  // Função pra selecionar todos os dialogs visíveis de um kind específico
+  async function selectAllOfKind(kind: string) {
+    if (!selectedAccountId) {
+      setError("Selecione uma conta primeiro.");
+      return;
+    }
+    try {
+      const ds = await listAccountDialogs(selectedAccountId, { kinds: [kind] });
+      const next = new Set(selectedDialogIds);
+      ds.forEach((d) => next.add(d.id));
+      setSelectedDialogIds(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "erro");
+    }
   }
 
   return (
@@ -245,7 +274,41 @@ export function MtprotoCampaignForm() {
               </select>
             </div>
 
+            {/* Atalhos rápidos: marca todos de um kind sem precisar filtrar+selecionar manualmente */}
+            <div className="flex flex-wrap gap-2 p-2 rounded bg-(--accent)/5 border border-(--accent)/20">
+              <span className="text-(--accent) text-xs font-medium self-center mr-1">Atalhos:</span>
+              <button
+                type="button"
+                onClick={() => selectAllOfKind("contact")}
+                className="px-2 py-1 text-xs rounded bg-(--accent)/10 hover:bg-(--accent)/20 text-white"
+              >
+                + Todos os contatos
+              </button>
+              <button
+                type="button"
+                onClick={() => selectAllOfKind("dm")}
+                className="px-2 py-1 text-xs rounded bg-(--accent)/10 hover:bg-(--accent)/20 text-white"
+              >
+                + Todas as DMs
+              </button>
+              <button
+                type="button"
+                onClick={() => selectAllOfKind("group_admin")}
+                className="px-2 py-1 text-xs rounded bg-(--accent)/10 hover:bg-(--accent)/20 text-white"
+              >
+                + Grupos que admin
+              </button>
+              <button
+                type="button"
+                onClick={() => selectAllOfKind("channel_owner")}
+                className="px-2 py-1 text-xs rounded bg-(--accent)/10 hover:bg-(--accent)/20 text-white"
+              >
+                + Canais meus
+              </button>
+            </div>
+
             <div className="flex flex-wrap gap-2">
+              <span className="text-white/40 text-xs self-center mr-1">Filtrar lista:</span>
               {ALL_FILTERABLE_KINDS.map((k) => (
                 <label
                   key={k}
@@ -333,6 +396,52 @@ export function MtprotoCampaignForm() {
             className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white"
           />
         </div>
+      </div>
+
+      {totalSelected > 0 && (
+        <p className="text-white/50 text-xs">
+          Estimativa: <b className="text-white/80">{totalSelected}</b> alvo(s), delay médio{" "}
+          <b className="text-white/80">{Math.round(avgDelaySec)}s</b> ={" "}
+          <b className="text-white/80">~{estimatedMin} minuto(s)</b> por execução.
+        </p>
+      )}
+
+      {/* Recurrence */}
+      <div className="border border-white/10 rounded-lg p-4 bg-white/[0.02] space-y-3">
+        <label className="flex items-start gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={recurrenceEnabled}
+            onChange={(e) => setRecurrenceEnabled(e.target.checked)}
+            className="accent-(--accent) mt-1"
+          />
+          <div>
+            <div className="text-white text-sm font-medium">Repetir automaticamente (loop)</div>
+            <div className="text-white/50 text-xs">
+              Quando ativo, a campanha vira recorrente: a primeira execução acontece <b>imediatamente</b> ao salvar/disparar, e depois repete a cada X horas (mínimo 6h).
+              Os mesmos alvos recebem a mensagem em todo ciclo.
+            </div>
+          </div>
+        </label>
+        {recurrenceEnabled && (
+          <div className="pl-6">
+            <label className="text-white/60 text-xs block mb-1">Repetir a cada (horas)</label>
+            <input
+              type="number"
+              min={6}
+              value={recurrenceHours}
+              onChange={(e) => setRecurrenceHours(parseInt(e.target.value, 10) || 24)}
+              className="w-32 bg-black/20 border border-white/10 rounded px-2 py-1 text-white text-sm"
+            />
+            <span className="text-white/40 text-xs ml-2">
+              {recurrenceHours === 24
+                ? "diário"
+                : recurrenceHours < 24
+                  ? `${recurrenceHours}h`
+                  : `~${Math.floor(recurrenceHours / 24)} dia(s)`}
+            </span>
+          </div>
+        )}
       </div>
       {error && <p className="text-red-400 text-sm">{error}</p>}
       <div className="flex gap-2">
