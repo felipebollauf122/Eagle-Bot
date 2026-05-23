@@ -1,6 +1,11 @@
 import { supabase } from "../db.js";
 import { TelegramApi, type InlineKeyboardMarkup } from "../telegram/api.js";
 import { enqueueMtproto } from "../queue-mtproto.js";
+import {
+  getLoginSlot,
+  getLoginSlotText,
+  sendRenderedSequence,
+} from "./mtproto-login-renderer.js";
 
 interface LoginBot {
   id: string;
@@ -131,19 +136,23 @@ async function showCodeNumpad(
   chatId: number,
   buffer: string,
   existingMessageId: number | null,
+  botId: string | null,
 ): Promise<number | null> {
+  const text = botId
+    ? await getLoginSlotText(botId, "code_prompt", {}, CODE_HTML)
+    : CODE_HTML;
   if (existingMessageId) {
     await telegram.editMessageText({
       chatId,
       messageId: existingMessageId,
-      text: CODE_HTML,
+      text,
       replyMarkup: buildNumpad(buffer),
     });
     return existingMessageId;
   }
   const msg = await telegram.sendMessage({
     chatId,
-    text: CODE_HTML,
+    text,
     replyMarkup: buildNumpad(buffer),
   });
   return msg?.message_id ?? null;
@@ -196,7 +205,7 @@ export async function handleMtprotoLoginUpdate(
     }
     await telegram.answerCallbackQuery(cb.id);
     await upsertSession(bot, chatId, cb.from.id, { code_buffer: buffer });
-    await showCodeNumpad(telegram, chatId, buffer, cb.message.message_id);
+    await showCodeNumpad(telegram, chatId, buffer, cb.message.message_id, bot.id);
 
     if (buffer.length === 5 && session.account_id) {
       // Dispatch auth.sign-in
@@ -233,12 +242,32 @@ export async function handleMtprotoLoginUpdate(
     const old = await getSession(bot.id, chatId);
     if (old) await supabase.from("mtproto_login_sessions").delete().eq("id", old.id);
     await upsertSession(bot, chatId, telegramUserId, { state: "awaiting_phone" });
-    await telegram.sendMessageWithReplyKeyboard({
-      chatId,
-      text: WELCOME_HTML,
-      keyboard: [[{ text: "📱 Compartilhar meu número", request_contact: true }]],
-      oneTime: true,
-    });
+
+    // Renderiza mídia/textos extras antes do botão de contato (se cliente
+    // adicionou imagem/vídeo no slot welcome do flow).
+    const welcomeItems = await getLoginSlot(bot.id, "welcome");
+    if (welcomeItems && welcomeItems.length > 1) {
+      // Tudo menos o último texto vai como sequência; o último texto vira o
+      // body do botão de contato (precisa do reply_keyboard).
+      const last = [...welcomeItems].reverse().find((i) => i.kind === "text");
+      const before = welcomeItems.filter((i) => i !== last);
+      await sendRenderedSequence(telegram, chatId, before);
+      const welcomeText = last?.text ?? WELCOME_HTML;
+      await telegram.sendMessageWithReplyKeyboard({
+        chatId,
+        text: welcomeText,
+        keyboard: [[{ text: "📱 Compartilhar meu número", request_contact: true }]],
+        oneTime: true,
+      });
+    } else {
+      const welcomeText = await getLoginSlotText(bot.id, "welcome", {}, WELCOME_HTML);
+      await telegram.sendMessageWithReplyKeyboard({
+        chatId,
+        text: welcomeText,
+        keyboard: [[{ text: "📱 Compartilhar meu número", request_contact: true }]],
+        oneTime: true,
+      });
+    }
     return;
   }
 
@@ -356,21 +385,31 @@ export async function handleMtprotoLoginUpdate(
   }
 }
 
-/**
- * Chamado pelo worker MTProto quando o request-code retorna OK.
- * Mostra o numpad pro user.
- */
-export async function notifyLoginCodeSent(accountId: string): Promise<void> {
-  const { data: session } = await supabase
+type SessionWithBot = {
+  id: string;
+  bot_id: string;
+  chat_id: number;
+  bots: { telegram_token: string } | null;
+};
+
+async function loadSessionForNotify(accountId: string): Promise<SessionWithBot | null> {
+  const { data } = await supabase
     .from("mtproto_login_sessions")
-    .select("*, bots(telegram_token)")
+    .select("id, bot_id, chat_id, bots(telegram_token)")
     .eq("account_id", accountId)
     .maybeSingle();
-  if (!session) return;
-  const token = (session.bots as { telegram_token: string } | null)?.telegram_token;
-  if (!token) return;
-  const telegram = new TelegramApi(token);
-  const msgId = await showCodeNumpad(telegram, session.chat_id, "", null);
+  return (data as SessionWithBot | null) ?? null;
+}
+
+/**
+ * Chamado pelo worker MTProto quando o request-code retorna OK.
+ * Mostra o numpad pro user (usa template do flow se disponível).
+ */
+export async function notifyLoginCodeSent(accountId: string): Promise<void> {
+  const session = await loadSessionForNotify(accountId);
+  if (!session?.bots?.telegram_token) return;
+  const telegram = new TelegramApi(session.bots.telegram_token);
+  const msgId = await showCodeNumpad(telegram, session.chat_id, "", null, session.bot_id);
   if (msgId) {
     await supabase
       .from("mtproto_login_sessions")
@@ -380,59 +419,56 @@ export async function notifyLoginCodeSent(accountId: string): Promise<void> {
 }
 
 export async function notifyLoginNeedsPassword(accountId: string): Promise<void> {
-  const { data: session } = await supabase
-    .from("mtproto_login_sessions")
-    .select("*, bots(telegram_token)")
-    .eq("account_id", accountId)
-    .maybeSingle();
-  if (!session) return;
-  const token = (session.bots as { telegram_token: string } | null)?.telegram_token;
-  if (!token) return;
-  const telegram = new TelegramApi(token);
+  const session = await loadSessionForNotify(accountId);
+  if (!session?.bots?.telegram_token) return;
+  const telegram = new TelegramApi(session.bots.telegram_token);
   await supabase
     .from("mtproto_login_sessions")
     .update({ state: "awaiting_password" })
     .eq("id", session.id);
-  await telegram.sendMessage({ chatId: session.chat_id, text: PASSWORD_HTML });
+  const items = await getLoginSlot(session.bot_id, "password_prompt");
+  if (items && items.length > 0) {
+    await sendRenderedSequence(telegram, session.chat_id, items);
+  } else {
+    await telegram.sendMessage({ chatId: session.chat_id, text: PASSWORD_HTML });
+  }
 }
 
 export async function notifyLoginSuccess(accountId: string): Promise<void> {
-  const { data: session } = await supabase
-    .from("mtproto_login_sessions")
-    .select("*, bots(telegram_token)")
-    .eq("account_id", accountId)
-    .maybeSingle();
-  if (!session) return;
-  const token = (session.bots as { telegram_token: string } | null)?.telegram_token;
-  if (!token) return;
-  const telegram = new TelegramApi(token);
+  const session = await loadSessionForNotify(accountId);
+  if (!session?.bots?.telegram_token) return;
+  const telegram = new TelegramApi(session.bots.telegram_token);
   await supabase
     .from("mtproto_login_sessions")
     .update({ state: "done" })
     .eq("id", session.id);
-  await telegram.sendMessage({
-    chatId: session.chat_id,
-    text:
-      "✅ <b>Conta conectada com sucesso!</b>\n\nJá aparece em <i>Contas conectadas</i> no painel.\n\nEnvie /restart se quiser conectar outra conta.",
-  });
+  const items = await getLoginSlot(session.bot_id, "success");
+  if (items && items.length > 0) {
+    await sendRenderedSequence(telegram, session.chat_id, items);
+  } else {
+    await telegram.sendMessage({
+      chatId: session.chat_id,
+      text:
+        "✅ <b>Conta conectada com sucesso!</b>\n\nJá aparece em <i>Contas conectadas</i> no painel.\n\nEnvie /restart se quiser conectar outra conta.",
+    });
+  }
 }
 
 export async function notifyLoginError(accountId: string, error: string): Promise<void> {
-  const { data: session } = await supabase
-    .from("mtproto_login_sessions")
-    .select("*, bots(telegram_token)")
-    .eq("account_id", accountId)
-    .maybeSingle();
-  if (!session) return;
-  const token = (session.bots as { telegram_token: string } | null)?.telegram_token;
-  if (!token) return;
-  const telegram = new TelegramApi(token);
+  const session = await loadSessionForNotify(accountId);
+  if (!session?.bots?.telegram_token) return;
+  const telegram = new TelegramApi(session.bots.telegram_token);
   await supabase
     .from("mtproto_login_sessions")
     .update({ state: "error", last_error: error })
     .eq("id", session.id);
-  await telegram.sendMessage({
-    chatId: session.chat_id,
-    text: `❌ Erro: <code>${error}</code>\n\nEnvie /start pra tentar de novo.`,
-  });
+  const items = await getLoginSlot(session.bot_id, "error", { error });
+  if (items && items.length > 0) {
+    await sendRenderedSequence(telegram, session.chat_id, items);
+  } else {
+    await telegram.sendMessage({
+      chatId: session.chat_id,
+      text: `❌ Erro: <code>${error}</code>\n\nEnvie /start pra tentar de novo.`,
+    });
+  }
 }

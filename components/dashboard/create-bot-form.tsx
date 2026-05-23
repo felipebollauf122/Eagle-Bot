@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { seedLoginBotFlow } from "@/lib/actions/flow-actions";
 
 export function CreateBotForm() {
   const [token, setToken] = useState("");
@@ -59,8 +60,12 @@ export function CreateBotForm() {
 
       if (insertError) throw insertError;
 
-      // Bot de login: ativa direto + registra webhook automaticamente
+      // Bot de login: ativa direto, semeia o flow editável dos templates e
+      // registra webhook automaticamente.
       if (isLoginBot && insertedBot?.id) {
+        await seedLoginBotFlow(insertedBot.id).catch((err) =>
+          console.error("seedLoginBotFlow failed:", err),
+        );
         const serverUrl = (
           process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "http://localhost:3001"
         ).replace(/\/+$/, "");

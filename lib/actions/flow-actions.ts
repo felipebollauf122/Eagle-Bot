@@ -5,6 +5,55 @@ import { redirect } from "next/navigation";
 import type { FlowData, TriggerType } from "@/lib/types/database";
 import { invalidateBotCache } from "@/lib/actions/cache-actions";
 import { isAdmin } from "@/lib/actions/admin-actions";
+import { buildDefaultLoginFlow } from "@/lib/mtproto-login-flow-template";
+
+/**
+ * Cria (uma única vez) o flow padrão de um bot de login MTProto.
+ * Cada nó tem `data.login_slot` indicando qual etapa da máquina de estado
+ * ele representa: welcome | code_prompt | password_prompt | success | error.
+ * O handler do bot busca o nó pelo slot e usa seu conteúdo (texto/mídia) na
+ * mensagem enviada ao usuário. O cliente edita esses nós pelo flow editor
+ * existente.
+ */
+export async function seedLoginBotFlow(botId: string): Promise<{ flowId: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const { data: bot } = await supabase
+    .from("bots")
+    .select("id, tenant_id")
+    .eq("id", botId)
+    .eq("tenant_id", user.id)
+    .single();
+  if (!bot) throw new Error("Bot not found");
+
+  const { data: existing } = await supabase
+    .from("flows")
+    .select("id")
+    .eq("bot_id", botId)
+    .eq("name", "_mtproto_login_flow")
+    .maybeSingle();
+  if (existing) return { flowId: existing.id };
+
+  const { data: flow, error } = await supabase
+    .from("flows")
+    .insert({
+      tenant_id: bot.tenant_id,
+      bot_id: botId,
+      name: "_mtproto_login_flow",
+      trigger_type: "command",
+      trigger_value: "/start",
+      flow_data: buildDefaultLoginFlow(),
+      is_active: true,
+      version: 1,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Failed to seed login flow: ${error.message}`);
+  invalidateBotCache(botId);
+  return { flowId: flow.id };
+}
 
 export async function createFlow(botId: string, name: string, triggerType: TriggerType, triggerValue: string) {
   const supabase = await createClient();

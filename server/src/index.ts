@@ -269,10 +269,17 @@ app.post("/api/mtproto/enqueue", async (req, res) => {
 });
 
 // Cache invalidation — called from dashboard when bot settings or flows are saved
-app.post("/api/bots/:botId/invalidate-cache", (_req, res) => {
+app.post("/api/bots/:botId/invalidate-cache", async (_req, res) => {
   const { botId } = _req.params;
   botCache.invalidate(botId);
   flowCache.invalidate(botId);
+  // Limpa também o cache do renderer do bot de login MTProto
+  try {
+    const { invalidateLoginFlowCache } = await import("./webhook/mtproto-login-renderer.js");
+    invalidateLoginFlowCache(botId);
+  } catch {
+    /* não-fatal */
+  }
   console.log(`[cache] Invalidated cache for bot ${botId}`);
   res.json({ success: true });
 });
