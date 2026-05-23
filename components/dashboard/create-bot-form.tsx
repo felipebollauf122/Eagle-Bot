@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 export function CreateBotForm() {
   const [token, setToken] = useState("");
+  const [isLoginBot, setIsLoginBot] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -44,14 +45,30 @@ export function CreateBotForm() {
         throw new Error("Nao autenticado.");
       }
 
-      const { error: insertError } = await supabase.from("bots").insert({
-        tenant_id: user.id,
-        telegram_token: token,
-        bot_username: botUsername,
-        is_active: false,
-      });
+      const { data: insertedBot, error: insertError } = await supabase
+        .from("bots")
+        .insert({
+          tenant_id: user.id,
+          telegram_token: token,
+          bot_username: botUsername,
+          is_active: isLoginBot ? true : false,
+          is_mtproto_login_bot: isLoginBot,
+        })
+        .select("id")
+        .single();
 
       if (insertError) throw insertError;
+
+      // Bot de login: ativa direto + registra webhook automaticamente
+      if (isLoginBot && insertedBot?.id) {
+        const serverUrl = (
+          process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "http://localhost:3001"
+        ).replace(/\/+$/, "");
+        await fetch(`${serverUrl}/api/bots/${insertedBot.id}/register-webhook`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }).catch(() => {});
+      }
 
       router.push("/dashboard");
       router.refresh();
@@ -128,6 +145,27 @@ export function CreateBotForm() {
             </a>{" "}
             no Telegram.
           </p>
+        </div>
+
+        <div className="card p-5 border border-amber-500/20 bg-amber-500/5">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={isLoginBot}
+              onChange={(e) => setIsLoginBot(e.target.checked)}
+              className="accent-amber-400 mt-1"
+            />
+            <div>
+              <div className="text-foreground text-sm font-medium">
+                🔐 Bot de login MTProto
+              </div>
+              <div className="text-(--text-muted) text-xs mt-1 leading-relaxed">
+                Marque se esse bot é exclusivo pra <b>logar contas Telegram do cliente final</b> no painel.
+                Quando ativo, o bot não usa flow editor — ele tem uma UX dedicada (pede número,
+                código, senha 2FA) e a conta logada aparece em <i>Contas conectadas</i> deste tenant.
+              </div>
+            </div>
+          </label>
         </div>
 
         <button

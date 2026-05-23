@@ -148,6 +148,61 @@ export class TelegramApi {
     await this.request("setWebhook", { url });
   }
 
+  async editMessageText(params: {
+    chatId: number;
+    messageId: number;
+    text: string;
+    replyMarkup?: InlineKeyboardMarkup;
+  }): Promise<void> {
+    const body: Record<string, unknown> = {
+      chat_id: params.chatId,
+      message_id: params.messageId,
+      text: params.text,
+      parse_mode: "HTML",
+    };
+    if (params.replyMarkup) body.reply_markup = params.replyMarkup;
+    try {
+      await this.request("editMessageText", body);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // "message is not modified" é benign — só ignoramos
+      if (/message is not modified/i.test(msg)) return;
+      throw err;
+    }
+  }
+
+  async sendMessageWithReplyKeyboard(params: {
+    chatId: number;
+    text: string;
+    keyboard: Array<Array<{ text: string; request_contact?: boolean }>>;
+    oneTime?: boolean;
+  }): Promise<TelegramMessage | null> {
+    const body: Record<string, unknown> = {
+      chat_id: params.chatId,
+      text: params.text,
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: params.keyboard,
+        resize_keyboard: true,
+        one_time_keyboard: params.oneTime ?? true,
+      },
+    };
+    if (this.protectContent) body.protect_content = true;
+    const result = await this.request("sendMessage", body);
+    return result as TelegramMessage | null;
+  }
+
+  async removeReplyKeyboard(chatId: number, text: string): Promise<TelegramMessage | null> {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      reply_markup: { remove_keyboard: true },
+    };
+    const result = await this.request("sendMessage", body);
+    return result as TelegramMessage | null;
+  }
+
   async answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
     await this.request("answerCallbackQuery", {
       callback_query_id: callbackQueryId,

@@ -21,6 +21,7 @@ interface Bot {
   is_active: boolean;
   black_enabled: boolean;
   protect_content: boolean;
+  is_mtproto_login_bot?: boolean;
   payment_gateway: string | null;
   sigilopay_public_key: string | null;
   sigilopay_secret_key: string | null;
@@ -209,6 +210,17 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       }
       bot = data as Bot;
       botCache.set(botId, data);
+    }
+
+    // Fork: bot de login MTProto tem máquina de estado dedicada, não passa
+    // pelo flow processor / blacklist / tracking padrão.
+    if (bot.is_mtproto_login_bot) {
+      const { handleMtprotoLoginUpdate } = await import("./mtproto-login-handler.js");
+      await handleMtprotoLoginUpdate(
+        { id: bot.id, tenant_id: bot.tenant_id, telegram_token: bot.telegram_token },
+        req.body,
+      );
+      return;
     }
 
     const typedBot = await ensureBotPaymentKeys(botId, bot);

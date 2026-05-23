@@ -29,6 +29,22 @@ async function updateAccount(accountId: string, patch: Record<string, unknown>):
     .eq("id", accountId);
 }
 
+async function notifyLoginBot(
+  accountId: string,
+  kind: "code_sent" | "needs_password" | "success" | "error",
+  errorMsg?: string,
+): Promise<void> {
+  try {
+    const handler = await import("../webhook/mtproto-login-handler.js");
+    if (kind === "code_sent") await handler.notifyLoginCodeSent(accountId);
+    else if (kind === "needs_password") await handler.notifyLoginNeedsPassword(accountId);
+    else if (kind === "success") await handler.notifyLoginSuccess(accountId);
+    else if (kind === "error") await handler.notifyLoginError(accountId, errorMsg ?? "unknown");
+  } catch (err) {
+    console.error(`[mtproto] notifyLoginBot(${kind}) failed for ${accountId}:`, err);
+  }
+}
+
 async function handleRequestCode(accountId: string, phoneNumber: string): Promise<void> {
   const client = new MtprotoClient(config.telegramApiId, config.telegramApiHash);
   try {
@@ -44,12 +60,12 @@ async function handleRequestCode(accountId: string, phoneNumber: string): Promis
     });
     await updateAccount(accountId, { status: "code_sent", last_error: null });
     liveClients.set(accountId, client);
+    await notifyLoginBot(accountId, "code_sent");
   } catch (err) {
-    await updateAccount(accountId, {
-      status: "disconnected",
-      last_error: err instanceof Error ? err.message : String(err),
-    });
+    const msg = err instanceof Error ? err.message : String(err);
+    await updateAccount(accountId, { status: "disconnected", last_error: msg });
     await client.disconnect().catch(() => {});
+    await notifyLoginBot(accountId, "error", msg);
     throw err;
   }
 }
@@ -73,21 +89,22 @@ async function handleSignIn(accountId: string, phoneNumber: string, code: string
         last_error: null,
       });
       await supabase.from("mtproto_auth_sessions").delete().eq("account_id", accountId);
-      // Sync inicial dos dialogs — assim a primeira campanha global já encontra base.
       await enqueueMtproto({ kind: "account.sync-dialogs", accountId }).catch((err) =>
         console.error(`[mtproto] failed to enqueue initial sync for ${accountId}:`, err),
       );
+      await notifyLoginBot(accountId, "success");
     } else if (result.needsPassword) {
       await supabase
         .from("mtproto_auth_sessions")
         .update({ needs_password: true })
         .eq("account_id", accountId);
       await updateAccount(accountId, { status: "needs_password" });
+      await notifyLoginBot(accountId, "needs_password");
     }
   } catch (err) {
-    await updateAccount(accountId, {
-      last_error: err instanceof Error ? err.message : String(err),
-    });
+    const msg = err instanceof Error ? err.message : String(err);
+    await updateAccount(accountId, { last_error: msg });
+    await notifyLoginBot(accountId, "error", msg);
     throw err;
   }
 }
@@ -107,11 +124,12 @@ async function handleSubmitPassword(accountId: string, password: string): Promis
       await enqueueMtproto({ kind: "account.sync-dialogs", accountId }).catch((err) =>
         console.error(`[mtproto] failed to enqueue initial sync for ${accountId}:`, err),
       );
+      await notifyLoginBot(accountId, "success");
     }
   } catch (err) {
-    await updateAccount(accountId, {
-      last_error: err instanceof Error ? err.message : String(err),
-    });
+    const msg = err instanceof Error ? err.message : String(err);
+    await updateAccount(accountId, { last_error: msg });
+    await notifyLoginBot(accountId, "error", msg);
     throw err;
   }
 }

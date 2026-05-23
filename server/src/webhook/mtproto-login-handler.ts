@@ -1,0 +1,438 @@
+import { supabase } from "../db.js";
+import { TelegramApi, type InlineKeyboardMarkup } from "../telegram/api.js";
+import { enqueueMtproto } from "../queue-mtproto.js";
+
+interface LoginBot {
+  id: string;
+  tenant_id: string;
+  telegram_token: string;
+}
+
+interface LoginSession {
+  id: string;
+  bot_id: string;
+  tenant_id: string;
+  chat_id: number;
+  telegram_user_id: number;
+  state: "awaiting_phone" | "awaiting_code" | "awaiting_password" | "done" | "error";
+  phone_number: string | null;
+  code_buffer: string | null;
+  account_id: string | null;
+  numpad_message_id: number | null;
+}
+
+const WELCOME_HTML = `
+👋 <b>Olá!</b>
+
+Esse bot vai conectar sua conta do Telegram ao painel.
+
+🔒 <b>É seguro:</b> você só precisa enviar seu número e o código de login que o Telegram vai te mandar. A conta fica salva no painel pra automações.
+
+📱 <b>Comece compartilhando seu número</b> no botão abaixo.
+`.trim();
+
+const CODE_HTML = `
+🔐 <b>Código recebido</b>
+
+O Telegram acabou de te enviar um código de login (na conversa oficial "Telegram", ID 777000).
+
+Digite os 5 dígitos usando o teclado abaixo:
+`.trim();
+
+const PASSWORD_HTML = `
+🔐 <b>Verificação em duas etapas</b>
+
+Sua conta tem 2FA ativado. Envie agora sua <b>senha do Telegram</b> (a que você criou nas configurações de "Privacidade e Segurança").
+
+⚠️ <b>Não é a senha do seu email</b> — é a senha 2FA do Telegram.
+`.trim();
+
+function buildNumpad(buffer: string): InlineKeyboardMarkup {
+  const display = (buffer + "·····").slice(0, 5).split("").join(" ");
+  // O display é a primeira linha (botão "fantasma" callback_data=noop)
+  return {
+    inline_keyboard: [
+      [{ text: display, callback_data: "noop" }],
+      [
+        { text: "1", callback_data: "d:1" },
+        { text: "2", callback_data: "d:2" },
+        { text: "3", callback_data: "d:3" },
+      ],
+      [
+        { text: "4", callback_data: "d:4" },
+        { text: "5", callback_data: "d:5" },
+        { text: "6", callback_data: "d:6" },
+      ],
+      [
+        { text: "7", callback_data: "d:7" },
+        { text: "8", callback_data: "d:8" },
+        { text: "9", callback_data: "d:9" },
+      ],
+      [{ text: "0", callback_data: "d:0" }],
+      [
+        { text: "🧹 Limpar", callback_data: "clear" },
+        { text: "❌ Cancelar", callback_data: "cancel" },
+      ],
+    ],
+  };
+}
+
+async function getSession(botId: string, chatId: number): Promise<LoginSession | null> {
+  const { data } = await supabase
+    .from("mtproto_login_sessions")
+    .select("*")
+    .eq("bot_id", botId)
+    .eq("chat_id", chatId)
+    .maybeSingle();
+  return (data as LoginSession | null) ?? null;
+}
+
+async function upsertSession(
+  bot: LoginBot,
+  chatId: number,
+  telegramUserId: number,
+  patch: Partial<LoginSession>,
+): Promise<LoginSession> {
+  const existing = await getSession(bot.id, chatId);
+  if (existing) {
+    const { data, error } = await supabase
+      .from("mtproto_login_sessions")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("id", existing.id)
+      .select("*")
+      .single();
+    if (error) throw new Error(`session update failed: ${error.message}`);
+    return data as LoginSession;
+  }
+  const { data, error } = await supabase
+    .from("mtproto_login_sessions")
+    .insert({
+      bot_id: bot.id,
+      tenant_id: bot.tenant_id,
+      chat_id: chatId,
+      telegram_user_id: telegramUserId,
+      state: patch.state ?? "awaiting_phone",
+      ...patch,
+    })
+    .select("*")
+    .single();
+  if (error) throw new Error(`session insert failed: ${error.message}`);
+  return data as LoginSession;
+}
+
+function normalizePhone(input: string): string | null {
+  const digits = input.replace(/\D/g, "");
+  if (digits.length < 10 || digits.length > 15) return null;
+  return digits.startsWith("+") ? input : `+${digits}`;
+}
+
+async function showCodeNumpad(
+  telegram: TelegramApi,
+  chatId: number,
+  buffer: string,
+  existingMessageId: number | null,
+): Promise<number | null> {
+  if (existingMessageId) {
+    await telegram.editMessageText({
+      chatId,
+      messageId: existingMessageId,
+      text: CODE_HTML,
+      replyMarkup: buildNumpad(buffer),
+    });
+    return existingMessageId;
+  }
+  const msg = await telegram.sendMessage({
+    chatId,
+    text: CODE_HTML,
+    replyMarkup: buildNumpad(buffer),
+  });
+  return msg?.message_id ?? null;
+}
+
+export async function handleMtprotoLoginUpdate(
+  bot: LoginBot,
+  update: Record<string, unknown>,
+): Promise<void> {
+  const telegram = new TelegramApi(bot.telegram_token);
+
+  // Callback query: cliques no numpad
+  if (update.callback_query) {
+    const cb = update.callback_query as {
+      id: string;
+      data?: string;
+      message?: { chat: { id: number }; message_id: number };
+      from: { id: number };
+    };
+    if (!cb.message) return;
+    const chatId = cb.message.chat.id;
+    const session = await getSession(bot.id, chatId);
+    if (!session || session.state !== "awaiting_code") {
+      await telegram.answerCallbackQuery(cb.id, "Sessão expirada — envie /start de novo");
+      return;
+    }
+    const data = cb.data ?? "";
+    let buffer = session.code_buffer ?? "";
+    if (data === "noop") {
+      await telegram.answerCallbackQuery(cb.id);
+      return;
+    }
+    if (data === "clear") {
+      buffer = "";
+    } else if (data === "cancel") {
+      await supabase.from("mtproto_login_sessions").delete().eq("id", session.id);
+      await telegram.editMessageText({
+        chatId,
+        messageId: cb.message.message_id,
+        text: "❌ Cancelado. Envie /start pra tentar de novo.",
+      });
+      await telegram.answerCallbackQuery(cb.id);
+      return;
+    } else if (data.startsWith("d:")) {
+      if (buffer.length >= 5) {
+        await telegram.answerCallbackQuery(cb.id, "Já tem 5 dígitos");
+        return;
+      }
+      buffer += data.slice(2);
+    }
+    await telegram.answerCallbackQuery(cb.id);
+    await upsertSession(bot, chatId, cb.from.id, { code_buffer: buffer });
+    await showCodeNumpad(telegram, chatId, buffer, cb.message.message_id);
+
+    if (buffer.length === 5 && session.account_id) {
+      // Dispatch auth.sign-in
+      await enqueueMtproto({
+        kind: "auth.sign-in",
+        accountId: session.account_id,
+        phoneNumber: session.phone_number ?? "",
+        code: buffer,
+      });
+      await telegram.sendMessage({
+        chatId,
+        text: "⏳ Validando código...",
+      });
+    }
+    return;
+  }
+
+  // Mensagens
+  const msg = update.message as
+    | {
+        chat: { id: number };
+        from: { id: number };
+        text?: string;
+        contact?: { phone_number: string };
+      }
+    | undefined;
+  if (!msg) return;
+  const chatId = msg.chat.id;
+  const telegramUserId = msg.from.id;
+  const text = (msg.text ?? "").trim();
+
+  // /start ou /restart: limpa sessão antiga e começa fresh
+  if (text === "/start" || text === "/restart") {
+    const old = await getSession(bot.id, chatId);
+    if (old) await supabase.from("mtproto_login_sessions").delete().eq("id", old.id);
+    await upsertSession(bot, chatId, telegramUserId, { state: "awaiting_phone" });
+    await telegram.sendMessageWithReplyKeyboard({
+      chatId,
+      text: WELCOME_HTML,
+      keyboard: [[{ text: "📱 Compartilhar meu número", request_contact: true }]],
+      oneTime: true,
+    });
+    return;
+  }
+
+  const session = await getSession(bot.id, chatId);
+  if (!session) {
+    await telegram.sendMessage({
+      chatId,
+      text: "Envie /start pra começar.",
+    });
+    return;
+  }
+
+  // Estado: awaiting_phone — recebe contato ou texto
+  if (session.state === "awaiting_phone") {
+    const rawPhone = msg.contact?.phone_number ?? text;
+    const phone = normalizePhone(rawPhone);
+    if (!phone) {
+      await telegram.sendMessage({
+        chatId,
+        text: "⚠️ Número inválido. Toque no botão <b>📱 Compartilhar meu número</b> ou envie no formato +5511999999999.",
+      });
+      return;
+    }
+
+    // Cria mtproto_accounts e dispara auth.request-code
+    const { data: account, error } = await supabase
+      .from("mtproto_accounts")
+      .insert({
+        tenant_id: bot.tenant_id,
+        phone_number: phone,
+        display_name: null,
+        status: "pending",
+        created_via_bot_id: bot.id,
+        created_for_telegram_user_id: telegramUserId,
+      })
+      .select("id")
+      .single();
+    if (error) {
+      await telegram.sendMessage({
+        chatId,
+        text: `❌ Erro ao registrar conta: ${error.message}`,
+      });
+      return;
+    }
+    await upsertSession(bot, chatId, telegramUserId, {
+      state: "awaiting_code",
+      phone_number: phone,
+      account_id: account.id,
+      code_buffer: "",
+    });
+    await telegram.removeReplyKeyboard(
+      chatId,
+      `✅ Número recebido: <code>${phone}</code>\n\n⏳ Solicitando código ao Telegram...`,
+    );
+    await enqueueMtproto({
+      kind: "auth.request-code",
+      accountId: account.id,
+      phoneNumber: phone,
+    });
+    return;
+  }
+
+  // Estado: awaiting_code — aceita texto também (alternativa ao numpad)
+  if (session.state === "awaiting_code") {
+    const digits = text.replace(/\D/g, "");
+    if (digits.length !== 5) {
+      await telegram.sendMessage({
+        chatId,
+        text: "Use o teclado abaixo pra digitar o código (5 dígitos).",
+      });
+      return;
+    }
+    if (!session.account_id || !session.phone_number) {
+      await telegram.sendMessage({
+        chatId,
+        text: "❌ Sessão corrompida. Envie /start de novo.",
+      });
+      return;
+    }
+    await upsertSession(bot, chatId, telegramUserId, { code_buffer: digits });
+    await enqueueMtproto({
+      kind: "auth.sign-in",
+      accountId: session.account_id,
+      phoneNumber: session.phone_number,
+      code: digits,
+    });
+    await telegram.sendMessage({ chatId, text: "⏳ Validando código..." });
+    return;
+  }
+
+  // Estado: awaiting_password
+  if (session.state === "awaiting_password") {
+    if (!session.account_id) {
+      await telegram.sendMessage({ chatId, text: "❌ Sessão corrompida. /start de novo." });
+      return;
+    }
+    if (text.length < 1) {
+      await telegram.sendMessage({ chatId, text: "Envie sua senha 2FA do Telegram." });
+      return;
+    }
+    await enqueueMtproto({
+      kind: "auth.submit-password",
+      accountId: session.account_id,
+      password: text,
+    });
+    await telegram.sendMessage({ chatId, text: "⏳ Validando senha 2FA..." });
+    return;
+  }
+
+  if (session.state === "done") {
+    await telegram.sendMessage({
+      chatId,
+      text: "✅ Você já está conectado. Envie /restart pra conectar outra conta.",
+    });
+  }
+}
+
+/**
+ * Chamado pelo worker MTProto quando o request-code retorna OK.
+ * Mostra o numpad pro user.
+ */
+export async function notifyLoginCodeSent(accountId: string): Promise<void> {
+  const { data: session } = await supabase
+    .from("mtproto_login_sessions")
+    .select("*, bots(telegram_token)")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (!session) return;
+  const token = (session.bots as { telegram_token: string } | null)?.telegram_token;
+  if (!token) return;
+  const telegram = new TelegramApi(token);
+  const msgId = await showCodeNumpad(telegram, session.chat_id, "", null);
+  if (msgId) {
+    await supabase
+      .from("mtproto_login_sessions")
+      .update({ numpad_message_id: msgId, code_buffer: "" })
+      .eq("id", session.id);
+  }
+}
+
+export async function notifyLoginNeedsPassword(accountId: string): Promise<void> {
+  const { data: session } = await supabase
+    .from("mtproto_login_sessions")
+    .select("*, bots(telegram_token)")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (!session) return;
+  const token = (session.bots as { telegram_token: string } | null)?.telegram_token;
+  if (!token) return;
+  const telegram = new TelegramApi(token);
+  await supabase
+    .from("mtproto_login_sessions")
+    .update({ state: "awaiting_password" })
+    .eq("id", session.id);
+  await telegram.sendMessage({ chatId: session.chat_id, text: PASSWORD_HTML });
+}
+
+export async function notifyLoginSuccess(accountId: string): Promise<void> {
+  const { data: session } = await supabase
+    .from("mtproto_login_sessions")
+    .select("*, bots(telegram_token)")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (!session) return;
+  const token = (session.bots as { telegram_token: string } | null)?.telegram_token;
+  if (!token) return;
+  const telegram = new TelegramApi(token);
+  await supabase
+    .from("mtproto_login_sessions")
+    .update({ state: "done" })
+    .eq("id", session.id);
+  await telegram.sendMessage({
+    chatId: session.chat_id,
+    text:
+      "✅ <b>Conta conectada com sucesso!</b>\n\nJá aparece em <i>Contas conectadas</i> no painel.\n\nEnvie /restart se quiser conectar outra conta.",
+  });
+}
+
+export async function notifyLoginError(accountId: string, error: string): Promise<void> {
+  const { data: session } = await supabase
+    .from("mtproto_login_sessions")
+    .select("*, bots(telegram_token)")
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (!session) return;
+  const token = (session.bots as { telegram_token: string } | null)?.telegram_token;
+  if (!token) return;
+  const telegram = new TelegramApi(token);
+  await supabase
+    .from("mtproto_login_sessions")
+    .update({ state: "error", last_error: error })
+    .eq("id", session.id);
+  await telegram.sendMessage({
+    chatId: session.chat_id,
+    text: `❌ Erro: <code>${error}</code>\n\nEnvie /start pra tentar de novo.`,
+  });
+}
