@@ -102,8 +102,13 @@ export class CampaignRunner {
     let drained = false;
     while (!drained) {
       await this.processBatch(currentBatch);
-      // Tenta re-buscar se a campanha ainda está running
+      // Tenta re-buscar se a campanha ainda está running.
+      // status=null = campanha deletada pelo user → aborta sem completar.
       const liveStatus = await this.deps.getCampaignStatus(this.cfg.campaignId);
+      if (liveStatus === null) {
+        console.log(`[runner] campaign ${this.cfg.campaignId} sumiu do DB (deletada), abortando`);
+        return;
+      }
       if (liveStatus === "paused" || liveStatus === "failed") {
         return;
       }
@@ -128,10 +133,10 @@ export class CampaignRunner {
 
   private async processBatch(pending: CampaignTargetRow[]): Promise<void> {
     for (const target of pending) {
-      // Verifica se o usuário pausou pela UI antes de cada envio.
+      // Verifica se o usuário pausou/deletou pela UI antes de cada envio.
       const liveStatus = await this.deps.getCampaignStatus(this.cfg.campaignId);
-      if (liveStatus === "paused" || liveStatus === "failed") {
-        console.log(`[runner] campaign ${this.cfg.campaignId} stopped mid-loop: status=${liveStatus}`);
+      if (liveStatus === null || liveStatus === "paused" || liveStatus === "failed") {
+        console.log(`[runner] campaign ${this.cfg.campaignId} stopped mid-loop: status=${liveStatus ?? "deleted"}`);
         return;
       }
       // Se o target tem conta pré-atribuída (campanha global), usa SÓ

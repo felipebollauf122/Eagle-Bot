@@ -435,3 +435,21 @@ export async function pauseCampaign(campaignId: string): Promise<void> {
   revalidatePath("/dashboard/automations");
   revalidatePath(`/dashboard/automations/campaigns/${campaignId}`);
 }
+
+/**
+ * Apaga a campanha permanentemente. Targets/dialogs ligados caem por
+ * cascade (FK on delete cascade). Se a campanha estava running, o runner
+ * vê o registro sumir no próximo getCampaignStatus e aborta.
+ */
+export async function deleteCampaign(campaignId: string): Promise<void> {
+  await requireOwner();
+  const tenantId = await currentTenantId();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("mtproto_campaigns")
+    .delete()
+    .eq("id", campaignId)
+    .eq("tenant_id", tenantId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/dashboard/automations");
+}

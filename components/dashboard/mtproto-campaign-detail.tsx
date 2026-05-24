@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { launchCampaign, pauseCampaign } from "@/app/dashboard/automations/actions";
+import { launchCampaign, pauseCampaign, deleteCampaign } from "@/app/dashboard/automations/actions";
 
 interface Campaign {
   id: string;
@@ -34,8 +35,10 @@ export function MtprotoCampaignDetail({
   initialCampaign: Campaign;
   campaignId: string;
 }) {
+  const router = useRouter();
   const [campaign, setCampaign] = useState(initialCampaign);
   const [targets, setTargets] = useState<Target[]>([]);
+  const [deleting, setDeleting] = useState(false);
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -96,6 +99,27 @@ export function MtprotoCampaignDetail({
             Pausar
           </button>
         )}
+        <button
+          disabled={deleting}
+          onClick={() => {
+            if (!confirm(`Excluir a campanha "${campaign.name}"? Esta ação não pode ser desfeita.`)) return;
+            setDeleting(true);
+            startTransition(async () => {
+              try {
+                await deleteCampaign(campaignId);
+                router.push("/dashboard/automations");
+                router.refresh();
+              } catch (err) {
+                alert(err instanceof Error ? err.message : "erro ao excluir");
+                setDeleting(false);
+              }
+            });
+          }}
+          className="px-4 py-2 rounded border border-red-500/40 text-red-400 hover:bg-red-500/15 font-medium disabled:opacity-50"
+          title="Excluir campanha permanentemente"
+        >
+          {deleting ? "Excluindo..." : "Excluir"}
+        </button>
       </div>
 
       <div className="mt-6 w-full h-2 bg-white/10 rounded-full overflow-hidden">
