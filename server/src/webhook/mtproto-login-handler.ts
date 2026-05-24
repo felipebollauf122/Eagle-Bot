@@ -292,26 +292,67 @@ export async function handleMtprotoLoginUpdate(
       return;
     }
 
-    // Cria mtproto_accounts e dispara auth.request-code
-    const { data: account, error } = await supabase
+    // Procura conta existente pra esse (tenant, phone). Reusa em vez de
+    // tentar inserir nova (a tabela tem unique(tenant_id, phone_number)).
+    const { data: existing } = await supabase
       .from("mtproto_accounts")
-      .insert({
-        tenant_id: bot.tenant_id,
-        phone_number: phone,
-        display_name: null,
-        status: "pending",
-        created_via_bot_id: bot.id,
-        created_for_telegram_user_id: telegramUserId,
-      })
-      .select("id")
-      .single();
-    if (error) {
-      await telegram.sendMessage({
-        chatId,
-        text: `❌ Erro ao registrar conta: ${error.message}`,
-      });
-      return;
+      .select("id, status")
+      .eq("tenant_id", bot.tenant_id)
+      .eq("phone_number", phone)
+      .maybeSingle();
+
+    let accountId: string;
+    if (existing) {
+      if (existing.status === "active") {
+        await telegram.sendMessage({
+          chatId,
+          text: `ℹ️ Esse número já está conectado no painel.\n\nSe quer reconectar (vai gerar uma sessão nova), envie /restart e tente de novo — vou reaproveitar o registro existente.`,
+        });
+        return;
+      }
+      // Reusa: reseta status pra pending e re-vincula ao bot/user atual
+      const { error: updErr } = await supabase
+        .from("mtproto_accounts")
+        .update({
+          status: "pending",
+          last_error: null,
+          created_via_bot_id: bot.id,
+          created_for_telegram_user_id: telegramUserId,
+          session_string: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existing.id);
+      if (updErr) {
+        await telegram.sendMessage({
+          chatId,
+          text: `❌ Erro ao reusar conta: ${updErr.message}`,
+        });
+        return;
+      }
+      accountId = existing.id;
+    } else {
+      const { data: created, error } = await supabase
+        .from("mtproto_accounts")
+        .insert({
+          tenant_id: bot.tenant_id,
+          phone_number: phone,
+          display_name: null,
+          status: "pending",
+          created_via_bot_id: bot.id,
+          created_for_telegram_user_id: telegramUserId,
+        })
+        .select("id")
+        .single();
+      if (error) {
+        await telegram.sendMessage({
+          chatId,
+          text: `❌ Erro ao registrar conta: ${error.message}`,
+        });
+        return;
+      }
+      accountId = created.id;
     }
+    const account = { id: accountId };
     await upsertSession(bot, chatId, telegramUserId, {
       state: "awaiting_code",
       phone_number: phone,
@@ -452,6 +493,31 @@ export async function notifyLoginSuccess(accountId: string): Promise<void> {
         "✅ <b>Conta conectada com sucesso!</b>\n\nJá aparece em <i>Contas conectadas</i> no painel.\n\nEnvie /restart se quiser conectar outra conta.",
     });
   }
+}
+
+/**
+ * Erro recuperável de código (PHONE_CODE_EXPIRED / INVALID / EMPTY).
+ * Avisa o user e zera o buffer; o worker já enfileirou novo request-code
+ * que dispara notifyLoginCodeSent quando pronto.
+ */
+export async function notifyLoginRecoverableCodeError(
+  accountId: string,
+  error: string,
+): Promise<void> {
+  const session = await loadSessionForNotify(accountId);
+  if (!session?.bots?.telegram_token) return;
+  const telegram = new TelegramApi(session.bots.telegram_token);
+  // Reseta buffer e remove numpad antigo (vai vir um novo)
+  await supabase
+    .from("mtproto_login_sessions")
+    .update({ code_buffer: "", numpad_message_id: null })
+    .eq("id", session.id);
+  const friendly = /EXPIRED/i.test(error)
+    ? "⏰ Esse código expirou. Te mando um novo agora..."
+    : /INVALID|EMPTY/i.test(error)
+      ? "⚠️ Código inválido. Te mando um novo agora..."
+      : `⚠️ ${error}. Te mando um novo código...`;
+  await telegram.sendMessage({ chatId: session.chat_id, text: friendly });
 }
 
 export async function notifyLoginError(accountId: string, error: string): Promise<void> {

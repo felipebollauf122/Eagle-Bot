@@ -104,6 +104,20 @@ async function handleSignIn(accountId: string, phoneNumber: string, code: string
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await updateAccount(accountId, { last_error: msg });
+    // Casos comuns/auto-recoveráveis: pede novo código transparente
+    if (/PHONE_CODE_EXPIRED|PHONE_CODE_INVALID|PHONE_CODE_EMPTY/i.test(msg)) {
+      try {
+        const handler = await import("../webhook/mtproto-login-handler.js");
+        await handler.notifyLoginRecoverableCodeError(accountId, msg);
+      } catch (e) {
+        console.error("[mtproto] recoverable code error notify failed:", e);
+      }
+      // Reenfileira request-code com o phoneNumber atual
+      await enqueueMtproto({ kind: "auth.request-code", accountId, phoneNumber }).catch((e) =>
+        console.error("[mtproto] reenqueue request-code failed:", e),
+      );
+      return; // não throw — é recuperável
+    }
     await notifyLoginBot(accountId, "error", msg);
     throw err;
   }
