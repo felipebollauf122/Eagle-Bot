@@ -42,6 +42,19 @@ export interface RunnerDeps {
    * caso o usuário pause manualmente pela UI.
    */
   getCampaignStatus: (campaignId: string) => Promise<string | null>;
+  /**
+   * Re-busca targets pending no DB. Usado quando o runner termina o
+   * snapshot atual — se contas novas foram adicionadas à campanha global
+   * enquanto o runner rodava, esses targets recém-inseridos aparecem aqui
+   * e o runner continua processando sem precisar enfileirar novo job.
+   */
+  refetchPending?: (campaignId: string) => Promise<CampaignTargetRow[]>;
+  /**
+   * Recarrega contas no pool. Quando uma conta nova é conectada no meio
+   * de uma campanha global, ela vira disponível pra enviar os próprios
+   * targets pinned.
+   */
+  reloadPool?: () => Promise<void>;
   delay: (ms: number) => Promise<void>;
 }
 
@@ -81,7 +94,39 @@ export class CampaignRunner {
   async run(targets: CampaignTargetRow[]): Promise<void> {
     await this.deps.setCampaignStatus(this.cfg.campaignId, "running");
 
-    const pending = targets.filter((t) => t.status === "pending");
+    // Loop externo: drena os pending; ao acabar o snapshot, re-consulta o
+    // DB pra ver se novos targets foram adicionados (caso típico: conta
+    // nova conectada no meio do run de uma campanha global). Sai apenas
+    // quando refetch retornar vazio (ou se deps não suportar refetch).
+    let currentBatch = targets.filter((t) => t.status === "pending");
+    let drained = false;
+    while (!drained) {
+      await this.processBatch(currentBatch);
+      // Tenta re-buscar se a campanha ainda está running
+      const liveStatus = await this.deps.getCampaignStatus(this.cfg.campaignId);
+      if (liveStatus === "paused" || liveStatus === "failed") {
+        return;
+      }
+      if (!this.deps.refetchPending) {
+        drained = true;
+        break;
+      }
+      if (this.deps.reloadPool) await this.deps.reloadPool();
+      const next = await this.deps.refetchPending(this.cfg.campaignId);
+      if (next.length === 0) {
+        drained = true;
+      } else {
+        console.log(
+          `[runner] campaign ${this.cfg.campaignId}: ${next.length} novos targets pending detectados (provavelmente conta nova conectada), continuando...`,
+        );
+        currentBatch = next;
+      }
+    }
+
+    await this.deps.setCampaignStatus(this.cfg.campaignId, "completed");
+  }
+
+  private async processBatch(pending: CampaignTargetRow[]): Promise<void> {
     for (const target of pending) {
       // Verifica se o usuário pausou pela UI antes de cada envio.
       const liveStatus = await this.deps.getCampaignStatus(this.cfg.campaignId);
@@ -166,7 +211,5 @@ export class CampaignRunner {
       const wait = min + Math.floor(Math.random() * Math.max(1, max - min + 1));
       if (wait > 0) await this.deps.delay(wait);
     }
-
-    await this.deps.setCampaignStatus(this.cfg.campaignId, "completed");
   }
 }

@@ -223,6 +223,108 @@ async function handleSyncDialogs(accountId: string): Promise<void> {
 
   await updateAccount(accountId, { last_error: null });
   console.log(`[mtproto.sync] account ${accountId}: ${rows.length} dialogs synced`);
+
+  // Hot-add: se essa conta tem owner_id (tenant) com campanhas globais
+  // ativas/pausadas/agendadas, adiciona os dialogs dessa conta como targets
+  // pending pra todas elas. Garante que conta nova sempre dispara em
+  // campanhas em curso, mesmo se a campanha tava prestes a terminar.
+  await addAccountToActiveGlobalCampaigns(accountId).catch((err) =>
+    console.error(`[mtproto.hot-add] account ${accountId} falhou:`, err),
+  );
+}
+
+/**
+ * Pra cada campanha global ativa (running|scheduled|paused) do tenant da
+ * conta, insere targets pending pros dialogs dessa conta em kinds seguros.
+ * Se a campanha já tinha terminado (completed/failed), ignora — comportamento
+ * estável: só campanhas "vivas" recebem hot-add.
+ *
+ * Se a campanha está em status completed mas ainda dentro do ciclo de
+ * recorrência, o user já tem o próximo scheduled — então o hot-add cobre.
+ *
+ * Se a campanha estava running e o runner já terminou o snapshot atual,
+ * o runner agora faz refetch ao acabar o loop (campaign-runner.ts) e pega
+ * os novos targets antes de marcar completed.
+ *
+ * Se a campanha estava scheduled (próximo ciclo recorrente), o
+ * refreshGlobalCampaignTargets do próximo handleCampaignRun vai
+ * regenerar com base no DB atual — mas os pending que adicionamos aqui
+ * serão deletados (ele faz delete + recreate). Pra evitar perda, marca
+ * com um tag especial via account_id (já está).
+ *
+ * Comportamento: queremos enfileirar pra disparar agora SE running. Se
+ * scheduled/paused, só insere e deixa pro user.
+ */
+async function addAccountToActiveGlobalCampaigns(accountId: string): Promise<void> {
+  const { data: account } = await supabase
+    .from("mtproto_accounts")
+    .select("id, tenant_id, status")
+    .eq("id", accountId)
+    .single();
+  if (!account || account.status !== "active") return;
+
+  // Campanhas globais elegíveis do tenant
+  const { data: campaigns } = await supabase
+    .from("mtproto_campaigns")
+    .select("id, status, total_targets")
+    .eq("tenant_id", account.tenant_id)
+    .eq("is_global", true)
+    .in("status", ["running", "scheduled", "paused"]);
+  if (!campaigns || campaigns.length === 0) return;
+
+  // Dialogs da conta em kinds seguros
+  const { data: dialogs } = await supabase
+    .from("mtproto_dialogs")
+    .select("id, title, username")
+    .eq("account_id", accountId)
+    .in("kind", ["contact", "dm", "group_admin", "channel_owner"]);
+  if (!dialogs || dialogs.length === 0) return;
+
+  for (const camp of campaigns) {
+    // Insere targets pending; collision (mesmo dialog já no DB) é raro
+    // porque conta nova => dialogs novos. Se houver, on conflict do unique
+    // index nos pegaria, mas não temos um — então só não duplica se o
+    // mesmo dialog_id já existe pro campaign (improvável: dialog_id vem
+    // do mtproto_dialogs row, único por (account_id, peer)).
+    const rows = dialogs.map((d) => ({
+      campaign_id: camp.id,
+      target_identifier: d.username ?? d.title ?? d.id,
+      target_type: "username" as const,
+      status: "pending" as const,
+      dialog_id: d.id,
+      account_id: accountId,
+    }));
+    for (let i = 0; i < rows.length; i += 500) {
+      const batch = rows.slice(i, i + 500);
+      const { error } = await supabase.from("mtproto_targets").insert(batch);
+      if (error) {
+        console.error(`[mtproto.hot-add] insert pra campanha ${camp.id} falhou:`, error);
+        return;
+      }
+    }
+    // Incrementa total_targets na campanha
+    await supabase
+      .from("mtproto_campaigns")
+      .update({ total_targets: (camp.total_targets ?? 0) + rows.length })
+      .eq("id", camp.id);
+    console.log(
+      `[mtproto.hot-add] ${rows.length} targets da conta ${accountId} adicionados à campanha ${camp.id} (status=${camp.status})`,
+    );
+
+    // Se a campanha está running, o runner pega no próximo refetch. Mas se
+    // o runner já terminou (workers caíram e o job sumiu, ou completed
+    // marcou antes do hot-add), precisamos garantir que role. Enfileira
+    // só se status='running' E ninguém tá rodando agora. Simples: tenta
+    // CAS de 'running' pra 'running' (no-op) e reenfileira o job. Mas o
+    // worker normal vai re-entrar em handleCampaignRun, que entra em
+    // run() de novo — e o setCampaignStatus("running") no início do run
+    // é o mesmo do estado atual, então é seguro.
+    if (camp.status === "running") {
+      await enqueueMtproto({ kind: "campaign.run", campaignId: camp.id }).catch((err) =>
+        console.error(`[mtproto.hot-add] enqueue campaign.run falhou:`, err),
+      );
+    }
+  }
 }
 
 async function refreshGlobalCampaignTargets(
@@ -298,68 +400,124 @@ async function handleCampaignRun(campaignId: string): Promise<void> {
     .single();
   if (!campaign) return;
 
-  // Em campanhas globais, ressincroniza dialogs e regenera targets pendentes
-  // antes do run. Garante que contatos novos entrem na base e contatos
-  // removidos saiam.
-  if (campaign.is_global) {
-    await refreshGlobalCampaignTargets(campaignId, campaign.tenant_id);
+  // Lock: garante 1 runner por campanha. Se outro worker já tá processando,
+  // retorna — o hot-add reenfileira via campaign.run quando precisar.
+  // TTL stale (30min): se o lock tá velho, considera worker morto e força.
+  const now = new Date();
+  const staleThreshold = new Date(now.getTime() - 30 * 60 * 1000);
+  if (campaign.is_processing) {
+    const started = campaign.processing_started_at ? new Date(campaign.processing_started_at) : null;
+    if (started && started > staleThreshold) {
+      console.log(`[runner] campanha ${campaignId} já em processamento, abortando reentrada`);
+      return;
+    }
+    console.warn(`[runner] lock stale (>30min) na campanha ${campaignId}, forçando reset`);
+  }
+  const { data: locked, error: lockErr } = await supabase
+    .from("mtproto_campaigns")
+    .update({ is_processing: true, processing_started_at: now.toISOString() })
+    .eq("id", campaignId)
+    .eq("is_processing", campaign.is_processing) // CAS
+    .select("id")
+    .maybeSingle();
+  if (lockErr || !locked) {
+    console.log(`[runner] CAS lock falhou na campanha ${campaignId}, outro worker pegou`);
+    return;
   }
 
-  const { data: accountsRaw } = await supabase
-    .from("mtproto_accounts")
-    .select("*")
-    .eq("tenant_id", campaign.tenant_id)
-    .in("status", ["active", "flood_wait"]);
+  try {
+    await runCampaignInner(campaignId, campaign);
+  } finally {
+    await supabase
+      .from("mtproto_campaigns")
+      .update({ is_processing: false, processing_started_at: null })
+      .eq("id", campaignId);
+  }
+}
+
+async function runCampaignInner(campaignId: string, campaign: Record<string, unknown> & { tenant_id: string; is_global?: boolean; recurrence_hours?: number | null; started_at?: string | null; message_text: string; delay_min_seconds: number; delay_max_seconds: number }): Promise<void> {
+  // Refresh global: deleta pending e recria do snapshot. Só roda no
+  // INÍCIO de um ciclo — se já tem targets sent, é re-entrada via
+  // hot-add e não pode apagar os pending recém-inseridos.
+  if (campaign.is_global) {
+    const { count: alreadySent } = await supabase
+      .from("mtproto_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", campaignId)
+      .eq("status", "sent");
+    if ((alreadySent ?? 0) === 0) {
+      await refreshGlobalCampaignTargets(campaignId, campaign.tenant_id);
+    } else {
+      console.log(
+        `[runner] campanha ${campaignId}: pulando refresh (já tem ${alreadySent} sent — re-entrada)`,
+      );
+    }
+  }
+
+  // Snapshot mutável de contas — sendMessage precisa do session_string atual;
+  // reloadPool re-popula isso pra incluir contas conectadas depois.
+  let accountsSnapshot: Array<{ id: string; phone_number: string; session_string: string | null; status: string; flood_wait_until: string | null }> = [];
+
+  async function loadAccountsAndPool(pool: AccountPool): Promise<void> {
+    const { data } = await supabase
+      .from("mtproto_accounts")
+      .select("id, phone_number, session_string, status, flood_wait_until")
+      .eq("tenant_id", campaign.tenant_id)
+      .in("status", ["active", "flood_wait"]);
+    accountsSnapshot = data ?? [];
+    pool.load(
+      accountsSnapshot.map(
+        (a): PoolAccount => ({
+          id: a.id,
+          phoneNumber: a.phone_number,
+          sessionString: a.session_string ?? "",
+          status: a.status as PoolAccount["status"],
+          floodWaitUntil: a.flood_wait_until ? new Date(a.flood_wait_until) : null,
+        }),
+      ),
+    );
+  }
 
   const pool = new AccountPool();
-  pool.load(
-    (accountsRaw ?? []).map(
-      (a): PoolAccount => ({
-        id: a.id,
-        phoneNumber: a.phone_number,
-        sessionString: a.session_string ?? "",
-        status: a.status,
-        floodWaitUntil: a.flood_wait_until ? new Date(a.flood_wait_until) : null,
-      }),
-    ),
-  );
+  await loadAccountsAndPool(pool);
 
-  const { data: targets } = await supabase
-    .from("mtproto_targets")
-    .select("*, mtproto_dialogs(peer_id, peer_type, peer_access_hash)")
-    .eq("campaign_id", campaignId)
-    .eq("status", "pending");
-
-  const targetRows: CampaignTargetRow[] = (targets ?? []).map((t) => {
-    const row: CampaignTargetRow = {
-      id: t.id,
-      identifier: t.target_identifier,
-      type: t.target_type,
-      status: t.status,
-    };
-    const dialog = t.mtproto_dialogs as
-      | { peer_id: string; peer_type: "user" | "chat" | "channel"; peer_access_hash: string | null }
-      | null;
-    if (dialog) {
-      row.dialog = {
-        peerId: dialog.peer_id,
-        peerType: dialog.peer_type,
-        peerAccessHash: dialog.peer_access_hash,
+  async function fetchPendingTargets(): Promise<CampaignTargetRow[]> {
+    const { data: targets } = await supabase
+      .from("mtproto_targets")
+      .select("*, mtproto_dialogs(peer_id, peer_type, peer_access_hash)")
+      .eq("campaign_id", campaignId)
+      .eq("status", "pending");
+    return (targets ?? []).map((t) => {
+      const row: CampaignTargetRow = {
+        id: t.id,
+        identifier: t.target_identifier,
+        type: t.target_type,
+        status: t.status,
       };
-    }
-    // Em campanhas globais (e em alguns casos com dialog), a conta já vem
-    // pré-atribuída no target — o access_hash do dialog só vale pra ela.
-    if (t.account_id) {
-      row.pinnedAccountId = t.account_id;
-    }
-    return row;
-  });
+      const dialog = t.mtproto_dialogs as
+        | { peer_id: string; peer_type: "user" | "chat" | "channel"; peer_access_hash: string | null }
+        | null;
+      if (dialog) {
+        row.dialog = {
+          peerId: dialog.peer_id,
+          peerType: dialog.peer_type,
+          peerAccessHash: dialog.peer_access_hash,
+        };
+      }
+      if (t.account_id) {
+        row.pinnedAccountId = t.account_id;
+      }
+      return row;
+    });
+  }
+
+  const targetRows = await fetchPendingTargets();
 
   const runner = new CampaignRunner(
     pool,
     {
       sendMessage: async (accountId, target, text) => {
-        const acc = (accountsRaw ?? []).find((a) => a.id === accountId);
+        const acc = accountsSnapshot.find((a) => a.id === accountId);
         if (!acc) throw new Error("account missing");
         const client = await getOrCreateClient(accountId, acc.session_string ?? "");
         if (target.dialog) {
@@ -447,6 +605,8 @@ async function handleCampaignRun(campaignId: string): Promise<void> {
         }
         await supabase.from("mtproto_campaigns").update(patch).eq("id", id);
       },
+      refetchPending: fetchPendingTargets,
+      reloadPool: () => loadAccountsAndPool(pool),
       delay: (ms) => new Promise((r) => setTimeout(r, ms)),
     },
     {
