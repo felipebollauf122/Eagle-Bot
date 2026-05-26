@@ -234,18 +234,20 @@ export function MtprotoCampaignForm() {
             </div>
             <div className="text-white/60 text-xs mt-1 leading-relaxed">
               Quando ativo, ignora a lista de alvos e a seleção manual. Cada conta MTProto
-              conectada dispara a mesma mensagem pros próprios contatos, DMs, grupos onde
-              você é admin e canais que você é dono. <b>Não inclui</b> grupos/canais onde
-              você só participa (filtro de segurança fixo).
-              {" "}A base de contatos é <b>sincronizada automaticamente</b>: ao conectar a conta,
-              antes de cada disparo global, e em loop a cada 24h.
+              conectada dispara a mesma mensagem pra <b>tudo onde a conta consegue mandar</b>:
+              contatos, DMs, grupos (admin <i>ou</i> só participante) e canais (dono <i>ou</i>
+              só inscrito). <b>Não inclui</b> bots e Saved Messages.
+              {" "}A base é <b>sincronizada automaticamente</b>: ao conectar a conta, antes de
+              cada disparo global e em loop a cada 24h.
             </div>
             {isGlobal && (
               <div className="text-amber-300 text-xs mt-2 leading-relaxed">
-                ⚠️ <b>Risco alto de ban:</b> mesma mensagem saindo de várias contas suas no
-                mesmo intervalo é o padrão clássico de detecção de spam do Telegram. Use
-                delays grandes (60-120s) e considere ativar a recorrência só após confirmar
-                que a primeira execução foi bem.
+                ⚠️ <b>Risco MUITO alto de ban:</b> incluir grupos/canais onde a conta só
+                participa é o caminho mais rápido pra <code>PHONE_NUMBER_BANNED</code> —
+                admins desses grupos denunciam por spam e o Telegram derruba a conta
+                inteira. Recomendado: delays grandes (60-120s), começar com 1 conta
+                pra testar, e só ativar recorrência depois de confirmar que a primeira
+                execução não causou ban.
               </div>
             )}
           </div>

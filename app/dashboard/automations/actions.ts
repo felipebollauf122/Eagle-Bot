@@ -5,6 +5,19 @@ import { parseTargets } from "@/lib/mtproto/target-parser";
 import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/lib/actions/owner-actions";
 
+// Kinds elegíveis em campanha global — owner pediu alcance máximo, então
+// inclui grupos/canais onde só participa (risco de ban por spam aceito).
+// Exclui bot (desperdício) e self (Saved Messages).
+// Espelha GLOBAL_DIALOG_KINDS em server/src/workers/mtproto-worker.ts.
+const GLOBAL_DIALOG_KINDS = [
+  "contact",
+  "dm",
+  "group_admin",
+  "group_member",
+  "channel_owner",
+  "channel_subscriber",
+];
+
 type MtprotoJob =
   | { kind: "auth.request-code"; accountId: string; phoneNumber: string }
   | { kind: "auth.sign-in"; accountId: string; phoneNumber: string; code: string }
@@ -132,7 +145,7 @@ export async function createCampaign(input: {
         .from("mtproto_dialogs")
         .select("id, account_id, title, username, kind")
         .in("account_id", accountIds)
-        .in("kind", ["contact", "dm", "group_admin", "channel_owner"]);
+        .in("kind", GLOBAL_DIALOG_KINDS);
       if (dErr) return { ok: false, error: `Failed to load global dialogs: ${dErr.message}` };
       const dialogList = dialogs ?? [];
 

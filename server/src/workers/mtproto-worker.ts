@@ -10,6 +10,19 @@ import {
 } from "../services/mtproto/campaign-runner.js";
 import { enqueueMtproto, type MtprotoJobData } from "../queue-mtproto.js";
 
+// Kinds elegíveis pra disparo global. Inclui grupos/canais onde só participa
+// — o owner aceita o risco de ban por spam em troca de alcance máximo.
+// Exclui só 'bot' (mandar pra bots é desperdício) e 'self' (Saved Messages
+// do próprio dono — ele já leu).
+const GLOBAL_DIALOG_KINDS = [
+  "contact",
+  "dm",
+  "group_admin",
+  "group_member",
+  "channel_owner",
+  "channel_subscriber",
+] as const;
+
 const liveClients = new Map<string, MtprotoClient>();
 
 async function getOrCreateClient(accountId: string, sessionString: string): Promise<MtprotoClient> {
@@ -291,7 +304,7 @@ async function addAccountToActiveGlobalCampaigns(accountId: string): Promise<voi
     .from("mtproto_dialogs")
     .select("id, title, username")
     .eq("account_id", accountId)
-    .in("kind", ["contact", "dm", "group_admin", "channel_owner"]);
+    .in("kind", GLOBAL_DIALOG_KINDS as unknown as string[]);
   if (!dialogs || dialogs.length === 0) return;
 
   for (const camp of campaigns) {
@@ -369,7 +382,7 @@ async function refreshGlobalCampaignTargets(
     .from("mtproto_dialogs")
     .select("id, account_id, title, username")
     .in("account_id", accountIds)
-    .in("kind", ["contact", "dm", "group_admin", "channel_owner"]);
+    .in("kind", GLOBAL_DIALOG_KINDS as unknown as string[]);
   const dialogList = dialogs ?? [];
   if (dialogList.length === 0) {
     console.warn(`[mtproto.global-refresh] campaign ${campaignId}: no dialogs found after sync`);
