@@ -9,6 +9,7 @@ import { addPaymentTimeoutJob } from "../../queue.js";
 interface BundleProduct {
   id: string;
   name: string;
+  description?: string | null;
   price: number; // cents
   currency: string;
   is_active: boolean;
@@ -79,17 +80,16 @@ export async function handlePaymentBundleNode(
     return { nextNodeId: null };
   }
 
-  // No black flow o cliente vê o ghost_name (fallback pro nome real).
-  // No white flow ele sempre vê o nome real.
-  const isBlack = ctx.lead.active_flow_name === "_black_flow";
-
+  // Ghost name agora vale em qualquer fluxo (white e black). Se não está
+  // preenchido, cai pro nome real. Único critério de visibilidade do
+  // editor de ghost é admin (já enforced no front).
   // Build inline keyboard — one button per product with name + price.
   // Cada produto pode ter button_style ('danger', 'success', 'primary') que
   // colore o botão (Bot API 8.x+). Clientes Telegram antigos ignoram o campo
   // e mostram o botão na cor padrão — compatível.
   const inlineKeyboard = items.map((item) => {
     const product = item.products;
-    const displayName = isBlack ? (product.ghost_name || product.name) : product.name;
+    const displayName = product.ghost_name || product.name;
     const priceInReais = product.price / 100;
     const priceFormatted = priceInReais.toLocaleString("pt-BR", {
       style: "currency",
@@ -171,7 +171,7 @@ export async function handleProductPaymentCallback(
   // Fetch product
   const { data: product } = await db
     .from("products")
-    .select("id, name, price, currency, is_active, ghost_name, ghost_description")
+    .select("id, name, description, price, currency, is_active, ghost_name, ghost_description")
     .eq("id", productId)
     .single();
 
@@ -184,11 +184,15 @@ export async function handleProductPaymentCallback(
   }
 
   const typedProduct = product as BundleProduct;
-  // Black flow: cliente vê ghost_name (fallback pro real). White flow: cliente vê nome real.
-  // Gateway e tracking sempre recebem typedProduct.name (nome real).
-  const isBlack = ctx.lead.active_flow_name === "_black_flow";
-  const displayName = isBlack ? (typedProduct.ghost_name || typedProduct.name) : typedProduct.name;
-  console.log(`[payment] isBlack=${isBlack}, ghost_name="${typedProduct.ghost_name}", displayName="${displayName}"`);
+  // Ghost vale em qualquer fluxo: o que aparece no chat E o que vai pra
+  // gateway é o ghost_name/ghost_description quando preenchidos (fallback
+  // pro real). Tracking interno (FB CAPI, Utmify) usa nome real.
+  const displayName = typedProduct.ghost_name || typedProduct.name;
+  const gatewayName = typedProduct.ghost_name || typedProduct.name;
+  const gatewayDescription = typedProduct.ghost_description ?? typedProduct.description ?? undefined;
+  console.log(
+    `[payment] ghost_name="${typedProduct.ghost_name}" gatewayName="${gatewayName}" gatewayDescription="${gatewayDescription ?? ""}"`,
+  );
   const identifier = `eaglebot_${ctx.lead.id}_${Date.now()}`;
   const amountInReais = typedProduct.price / 100;
 
@@ -219,12 +223,13 @@ export async function handleProductPaymentCallback(
       clientEmail,
       clientPhone,
       clientDocument,
-      // Gateway SEMPRE recebe o nome real do produto.
-      // O ghost_name é apenas para exibição ao cliente (tanto no black quanto no white flow).
+      // Gateway recebe ghost_name/ghost_description como prioridade.
+      // Fallback pros valores reais quando ghost vazio.
       products: [
         {
           id: typedProduct.id,
-          name: typedProduct.name,
+          name: gatewayName,
+          description: gatewayDescription,
           quantity: 1,
           price: amountInReais,
         },

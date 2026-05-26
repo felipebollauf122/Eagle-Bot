@@ -49,6 +49,15 @@ export class EvPay implements PaymentGateway {
       );
     }
 
+    // Description: usa o primeiro produto (name + description, se houver).
+    // O caller já passa name=ghost_name||name e description=ghost_description||description.
+    const firstProduct = params.products?.[0];
+    const description = firstProduct
+      ? firstProduct.description
+        ? `${firstProduct.name} — ${firstProduct.description}`
+        : firstProduct.name
+      : `Pedido ${params.identifier}`;
+
     const payload: Record<string, unknown> = {
       method: "PIX",
       amount: params.amount,
@@ -56,7 +65,7 @@ export class EvPay implements PaymentGateway {
       customerEmail: params.clientEmail,
       customerPhone: params.clientPhone,
       customerDocument: params.clientDocument,
-      description: `Pedido ${params.identifier}`,
+      description,
     };
 
     if (params.metadata && Object.keys(params.metadata).length > 0) {
@@ -99,7 +108,7 @@ export class EvPay implements PaymentGateway {
         (c) => c && typeof c === "object" && (c.id || c.transactionId),
       ) ?? {};
 
-    // Yvepay/EvPay retorna PIX em data.methodData.pix.qrCode.emv (BRcode)
+    // Yvepay retorna PIX em data.methodData.pix.qrCode.emv (BRcode)
     // e a imagem do QR em data.methodData.pix.qrCode.image
     const methodData = (data as { methodData?: Record<string, unknown> }).methodData ?? {};
     const pixContainer =
