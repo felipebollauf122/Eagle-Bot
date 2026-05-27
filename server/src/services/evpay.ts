@@ -73,6 +73,7 @@ export class EvPay implements PaymentGateway {
     }
 
     console.log(`[evpay] Creating PIX payment for project ${this.projectId}`);
+    console.log(`[evpay] Payload enviado:`, JSON.stringify(payload, null, 2));
 
     const response = await fetch(
       `${this.baseUrl}/projects/${this.projectId}/payments`,

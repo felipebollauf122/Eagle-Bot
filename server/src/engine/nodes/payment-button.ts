@@ -215,35 +215,40 @@ export async function handleProductPaymentCallback(
     text: "⏳ Gerando seu Pix, aguarde...",
   });
 
+  const gatewayParams = {
+    identifier,
+    amount: amountInReais,
+    clientName: ctx.lead.first_name,
+    clientEmail,
+    clientPhone,
+    clientDocument,
+    products: [
+      {
+        id: typedProduct.id,
+        name: gatewayName,
+        description: gatewayDescription,
+        quantity: 1,
+        price: amountInReais,
+      },
+    ],
+    callbackUrl,
+    metadata: {
+      provider: "eaglebot",
+      orderId: identifier,
+      lead_id: ctx.lead.id,
+      bot_id: ctx.lead.bot_id,
+      flow_id: ctx.lead.current_flow_id ?? "",
+    },
+  };
+
+  console.log(
+    `[gateway-call] kind=${gatewayKind} productId=${typedProduct.id} realName="${typedProduct.name}" ghost_name="${typedProduct.ghost_name ?? ""}" ghost_description="${typedProduct.ghost_description ?? ""}" → sending:`,
+    JSON.stringify(gatewayParams, null, 2),
+  );
+
   let payment;
   try {
-    payment = await gateway.createPixPayment({
-      identifier,
-      amount: amountInReais,
-      clientName: ctx.lead.first_name,
-      clientEmail,
-      clientPhone,
-      clientDocument,
-      // Gateway recebe ghost_name/ghost_description como prioridade.
-      // Fallback pros valores reais quando ghost vazio.
-      products: [
-        {
-          id: typedProduct.id,
-          name: gatewayName,
-          description: gatewayDescription,
-          quantity: 1,
-          price: amountInReais,
-        },
-      ],
-      callbackUrl,
-      metadata: {
-        provider: "eaglebot",
-        orderId: identifier,
-        lead_id: ctx.lead.id,
-        bot_id: ctx.lead.bot_id,
-        flow_id: ctx.lead.current_flow_id ?? "",
-      },
-    });
+    payment = await gateway.createPixPayment(gatewayParams);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error(`[payment] ${gatewayKind} failed for product ${productId}, lead ${ctx.lead.id}:`, errorMsg);
