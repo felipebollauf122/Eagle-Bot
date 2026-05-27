@@ -87,18 +87,10 @@ export async function handlePaymentBundleNode(
   // Cada produto pode ter button_style ('danger', 'success', 'primary') que
   // colore o botão (Bot API 8.x+). Clientes Telegram antigos ignoram o campo
   // e mostram o botão na cor padrão — compatível.
-  console.log(
-    `[bundle] flow=${ctx.lead.active_flow_name} items=`,
-    items.map((it) => ({
-      id: it.products.id,
-      name: it.products.name,
-      ghost_name: it.products.ghost_name,
-      will_show: it.products.ghost_name || it.products.name,
-    })),
-  );
   const inlineKeyboard = items.map((item) => {
     const product = item.products;
-    const displayName = product.ghost_name || product.name;
+    // Cliente sempre vê o nome real. Ghost é só pra gateway (ver callback).
+    const displayName = product.name;
     const priceInReais = product.price / 100;
     const priceFormatted = priceInReais.toLocaleString("pt-BR", {
       style: "currency",
@@ -193,14 +185,14 @@ export async function handleProductPaymentCallback(
   }
 
   const typedProduct = product as BundleProduct;
-  // Ghost vale em qualquer fluxo: o que aparece no chat E o que vai pra
-  // gateway é o ghost_name/ghost_description quando preenchidos (fallback
-  // pro real). Tracking interno (FB CAPI, Utmify) usa nome real.
-  const displayName = typedProduct.ghost_name || typedProduct.name;
+  // Cliente no chat sempre vê o nome REAL. Ghost (name/description) só vai
+  // pra GATEWAY (fallback pro real se vazio) — é o que aparece na fatura
+  // PIX e no painel da gateway. Tracking interno também usa nome real.
+  const displayName = typedProduct.name;
   const gatewayName = typedProduct.ghost_name || typedProduct.name;
   const gatewayDescription = typedProduct.ghost_description ?? typedProduct.description ?? undefined;
   console.log(
-    `[payment] ghost_name="${typedProduct.ghost_name}" gatewayName="${gatewayName}" gatewayDescription="${gatewayDescription ?? ""}"`,
+    `[payment] display(real)="${displayName}" gatewayName="${gatewayName}" gatewayDescription="${gatewayDescription ?? ""}"`,
   );
   const identifier = `eaglebot_${ctx.lead.id}_${Date.now()}`;
   const amountInReais = typedProduct.price / 100;

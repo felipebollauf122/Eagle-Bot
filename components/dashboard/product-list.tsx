@@ -210,7 +210,7 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
                           </svg>
                         </div>
                         <span className="badge badge-error text-[10px]">FANTASMA</span>
-                        <span className="text-(--text-muted) text-[10px]">Exibido ao cliente E enviado pra gateway (em qualquer fluxo). Fallback pro nome real se vazio.</span>
+                        <span className="text-(--text-muted) text-[10px]">Enviado pra gateway (fatura PIX) em qualquer fluxo. Cliente continua vendo o nome real. Fallback pro real se vazio.</span>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
