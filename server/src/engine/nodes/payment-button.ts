@@ -87,6 +87,15 @@ export async function handlePaymentBundleNode(
   // Cada produto pode ter button_style ('danger', 'success', 'primary') que
   // colore o botão (Bot API 8.x+). Clientes Telegram antigos ignoram o campo
   // e mostram o botão na cor padrão — compatível.
+  console.log(
+    `[bundle] flow=${ctx.lead.active_flow_name} items=`,
+    items.map((it) => ({
+      id: it.products.id,
+      name: it.products.name,
+      ghost_name: it.products.ghost_name,
+      will_show: it.products.ghost_name || it.products.name,
+    })),
+  );
   const inlineKeyboard = items.map((item) => {
     const product = item.products;
     const displayName = product.ghost_name || product.name;
