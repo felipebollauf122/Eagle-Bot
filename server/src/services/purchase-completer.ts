@@ -68,7 +68,7 @@ export async function completePurchase(
 
   const { data: product } = await db
     .from("products")
-    .select("id, name")
+    .select("id, name, ghost_name")
     .eq("id", transaction.product_id)
     .single();
 
@@ -98,7 +98,9 @@ export async function completePurchase(
       },
       customerDocument: String(lead.state.document ?? ""),
       productId: product?.id ?? transaction.product_id,
-      productName: product?.name ?? "Produto",
+      // Tudo que sai pra fora (FB CAPI, Utmify, gateway) usa ghost_name.
+      // Só o que aparece no chat pro cliente usa o name real.
+      productName: (product as { ghost_name?: string | null } | null)?.ghost_name || product?.name || "Produto",
     })
     .catch((e) => console.error("[purchase-completer] Tracking error:", e));
 

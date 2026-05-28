@@ -309,7 +309,8 @@ export async function handleProductPaymentCallback(
       botId: ctx.lead.bot_id,
     };
 
-    // Facebook InitiateCheckout event
+    // Facebook InitiateCheckout event — usa GHOST (mesma regra da gateway:
+    // tudo que sai pra fora do nosso sistema usa ghost, fallback pro real).
     trackingSvc.trackCheckout({
       tenantId: ctx.lead.tenant_id,
       leadId: ctx.lead.id,
@@ -318,10 +319,10 @@ export async function handleProductPaymentCallback(
       currency: typedProduct.currency,
       lead: leadInfo,
       productId: typedProduct.id,
-      productName: typedProduct.name,
+      productName: gatewayName,
     }).catch((e) => console.error("[tracking] Failed to track checkout:", e));
 
-    // Utmify waiting_payment
+    // Utmify waiting_payment — também ghost
     if (botConfig.utmify_api_key) {
       utmSvc.sendOrder({
         orderId: txRecord?.id ?? payment.transactionId,
@@ -336,7 +337,7 @@ export async function handleProductPaymentCallback(
         },
         products: [{
           id: typedProduct.id,
-          name: typedProduct.name,
+          name: gatewayName,
           priceInCents: String(typedProduct.price),
           quantity: 1,
         }],
