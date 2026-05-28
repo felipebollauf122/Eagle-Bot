@@ -634,6 +634,25 @@ async function runCampaignInner(campaignId: string, campaign: Record<string, unk
       },
       refetchPending: fetchPendingTargets,
       reloadPool: () => loadAccountsAndPool(pool),
+      markAccountFatal: async (accountId, error) => {
+        console.warn(`[mtproto] conta ${accountId} marcada como banned (erro fatal): ${error}`);
+        await supabase
+          .from("mtproto_accounts")
+          .update({
+            status: "banned",
+            last_error: error,
+            session_string: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", accountId);
+        // Tira do liveClients pra forçar reconnect (que vai falhar mesmo, mas
+        // não fica segurando objeto vivo apontando pra sessão morta)
+        const live = liveClients.get(accountId);
+        if (live) {
+          await live.disconnect().catch(() => {});
+          liveClients.delete(accountId);
+        }
+      },
       delay: (ms) => new Promise((r) => setTimeout(r, ms)),
     },
     {

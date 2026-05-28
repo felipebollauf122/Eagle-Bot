@@ -55,6 +55,13 @@ export interface RunnerDeps {
    * targets pinned.
    */
   reloadPool?: () => Promise<void>;
+  /**
+   * Marca a conta como banida/inválida no DB (status='banned' + last_error).
+   * Chamado quando o Telegram retorna AUTH_KEY_UNREGISTERED, USER_DEACTIVATED,
+   * SESSION_REVOKED ou PHONE_NUMBER_BANNED. Próximas campanhas pulam essa
+   * conta automaticamente até o owner relogar pelo bot/dashboard.
+   */
+  markAccountFatal?: (accountId: string, error: string) => Promise<void>;
   delay: (ms: number) => Promise<void>;
 }
 
@@ -191,22 +198,26 @@ export class CampaignRunner {
               await this.deps.markTargetSent(target.id, nextAccount.id);
               await this.deps.incrementCounters(this.cfg.campaignId, "sent");
             } catch (err2) {
-              if (isFatalAccountError(err2)) this.pool.markBanned(nextAccount.id);
-              await this.deps.markTargetFailed(
-                target.id,
-                nextAccount.id,
-                err2 instanceof Error ? err2.message : String(err2),
-              );
+              const msg2 = err2 instanceof Error ? err2.message : String(err2);
+              if (isFatalAccountError(err2)) {
+                this.pool.markBanned(nextAccount.id);
+                if (this.deps.markAccountFatal) {
+                  await this.deps.markAccountFatal(nextAccount.id, msg2);
+                }
+              }
+              await this.deps.markTargetFailed(target.id, nextAccount.id, msg2);
               await this.deps.incrementCounters(this.cfg.campaignId, "failed");
             }
           }
         } else {
-          if (isFatalAccountError(err)) this.pool.markBanned(account.id);
-          await this.deps.markTargetFailed(
-            target.id,
-            account.id,
-            err instanceof Error ? err.message : String(err),
-          );
+          const msg = err instanceof Error ? err.message : String(err);
+          if (isFatalAccountError(err)) {
+            this.pool.markBanned(account.id);
+            if (this.deps.markAccountFatal) {
+              await this.deps.markAccountFatal(account.id, msg);
+            }
+          }
+          await this.deps.markTargetFailed(target.id, account.id, msg);
           await this.deps.incrementCounters(this.cfg.campaignId, "failed");
         }
       }
