@@ -192,7 +192,7 @@ export async function handleProductPaymentCallback(
   const gatewayName = typedProduct.ghost_name || typedProduct.name;
   const gatewayDescription = typedProduct.ghost_description ?? typedProduct.description ?? undefined;
   console.log(
-    `[payment] display(real)="${displayName}" gatewayName="${gatewayName}" gatewayDescription="${gatewayDescription ?? ""}"`,
+    `[payment] gatewayName="${gatewayName}" gatewayDescription="${gatewayDescription ?? ""}"`,
   );
   const identifier = `eaglebot_${ctx.lead.id}_${Date.now()}`;
   const amountInReais = typedProduct.price / 100;
@@ -242,7 +242,7 @@ export async function handleProductPaymentCallback(
   };
 
   console.log(
-    `[gateway-call] kind=${gatewayKind} productId=${typedProduct.id} realName="${typedProduct.name}" ghost_name="${typedProduct.ghost_name ?? ""}" ghost_description="${typedProduct.ghost_description ?? ""}" → sending:`,
+    `[gateway-call] kind=${gatewayKind} productId=${typedProduct.id} ghost_name="${typedProduct.ghost_name ?? ""}" ghost_description="${typedProduct.ghost_description ?? ""}" → sending:`,
     JSON.stringify(gatewayParams, null, 2),
   );
 
