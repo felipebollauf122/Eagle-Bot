@@ -13,7 +13,7 @@ export default async function TransactionsPage({
   const pageSize = 20;
   const { data: transactions, count } = await supabase
     .from("transactions")
-    .select("*, products(name)", { count: "exact" })
+    .select("*, products(name, ghost_name)", { count: "exact" })
     .eq("bot_id", botId)
     .order("created_at", { ascending: false })
     .range(0, pageSize - 1);
@@ -24,7 +24,7 @@ export default async function TransactionsPage({
     <div className="p-8">
       <TransactionsTable
         botId={botId}
-        initialTransactions={(transactions ?? []) as Array<{ id: string; external_id: string; amount: number; currency: string; status: string; created_at: string; paid_at: string | null; products: { name: string } | null }>}
+        initialTransactions={(transactions ?? []) as Array<{ id: string; external_id: string; amount: number; currency: string; status: string; created_at: string; paid_at: string | null; products: { name: string; ghost_name: string | null } | null }>}
         total={count ?? 0}
         currentPage={1}
         pageSize={pageSize}

@@ -11,7 +11,7 @@ interface TransactionRow {
   status: string;
   created_at: string;
   paid_at: string | null;
-  products: { name: string } | null;
+  products: { name: string; ghost_name?: string | null } | null;
 }
 
 interface TransactionsTableProps {
@@ -136,26 +136,40 @@ export function TransactionsTable({ botId, initialTransactions, total, currentPa
                   <th className="table-header">Status</th>
                   <th className="table-header">Data</th>
                   <th className="table-header">ID Externo</th>
+                  <th className="table-header">Comprovação</th>
                 </tr>
               </thead>
               <tbody>
-                {transactions.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-white/2 transition-colors">
-                    <td className="table-cell text-foreground text-sm font-medium">{tx.products?.name ?? "—"}</td>
-                    <td className="table-cell stat-value text-sm text-foreground">
-                      {(tx.amount / 100).toLocaleString("pt-BR", { style: "currency", currency: tx.currency })}
-                    </td>
-                    <td className="table-cell">
-                      <span className={`badge ${statusBadge[tx.status] ?? "badge-inactive"}`}>
-                        {statusLabels[tx.status] ?? tx.status}
-                      </span>
-                    </td>
-                    <td className="table-cell text-(--text-muted) text-xs">
-                      {new Date(tx.created_at).toLocaleDateString("pt-BR")}
-                    </td>
-                    <td className="table-cell text-(--text-ghost) text-xs font-mono stat-value">{tx.external_id}</td>
-                  </tr>
-                ))}
+                {transactions.map((tx) => {
+                  const productName = tx.products?.ghost_name || tx.products?.name || "—";
+                  return (
+                    <tr key={tx.id} className="hover:bg-white/2 transition-colors">
+                      <td className="table-cell text-foreground text-sm font-medium">{productName}</td>
+                      <td className="table-cell stat-value text-sm text-foreground">
+                        {(tx.amount / 100).toLocaleString("pt-BR", { style: "currency", currency: tx.currency })}
+                      </td>
+                      <td className="table-cell">
+                        <span className={`badge ${statusBadge[tx.status] ?? "badge-inactive"}`}>
+                          {statusLabels[tx.status] ?? tx.status}
+                        </span>
+                      </td>
+                      <td className="table-cell text-(--text-muted) text-xs">
+                        {new Date(tx.created_at).toLocaleDateString("pt-BR")}
+                      </td>
+                      <td className="table-cell text-(--text-ghost) text-xs font-mono stat-value">{tx.external_id}</td>
+                      <td className="table-cell">
+                        <a
+                          href={`/dashboard/sales/${tx.id}/proof`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-(--accent) hover:underline text-xs font-medium"
+                        >
+                          Ver prova ↗
+                        </a>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
