@@ -239,7 +239,13 @@ export function ProofView({
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <div className="text-(--text-muted) text-xs">Gateway</div>
-            <div className="text-foreground font-medium uppercase">{transaction.gateway}</div>
+            <div className="text-foreground font-medium">
+              {transaction.gateway === "evpay"
+                ? "Yvepay"
+                : transaction.gateway === "sigilopay"
+                  ? "Poseidon Pay"
+                  : transaction.gateway}
+            </div>
           </div>
           <div>
             <div className="text-(--text-muted) text-xs">Método</div>
@@ -367,13 +373,17 @@ export function ProofView({
                   amount: transaction.amount,
                   currency: transaction.currency,
                   status: transaction.status,
-                  gateway: transaction.gateway,
+                  gateway:
+                    transaction.gateway === "evpay"
+                      ? "Yvepay"
+                      : transaction.gateway === "sigilopay"
+                        ? "Poseidon Pay"
+                        : transaction.gateway,
                   created_at: transaction.created_at,
                   paid_at: transaction.paid_at,
                 },
                 product: {
                   id: product?.id,
-                  name_shown_to_buyer: product?.name,
                   name_on_invoice: productDisplay,
                   description_on_invoice: productDescription,
                 },
