@@ -48,7 +48,7 @@ export async function createBundle(botId: string, name: string, description: str
   return data;
 }
 
-export async function updateBundle(bundleId: string, data: { name?: string; description?: string; message_text?: string; is_active?: boolean }) {
+export async function updateBundle(bundleId: string, data: { name?: string; description?: string; message_text?: string; is_active?: boolean; ghost_name?: string | null }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");

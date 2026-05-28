@@ -33,6 +33,7 @@ export default async function AdminBotBundlesPage({
         botId={botId}
         initialBundles={(bundles ?? []) as any}
         products={(products ?? []) as any}
+        isAdmin={true}
       />
     </div>
   );

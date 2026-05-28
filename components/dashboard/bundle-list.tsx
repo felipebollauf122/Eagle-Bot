@@ -21,6 +21,7 @@ interface BundleItem {
 interface Bundle {
   id: string;
   name: string;
+  ghost_name: string | null;
   description: string;
   message_text: string;
   is_active: boolean;
@@ -31,9 +32,10 @@ interface BundleListProps {
   botId: string;
   initialBundles: Bundle[];
   products: Product[];
+  isAdmin?: boolean;
 }
 
-export function BundleList({ botId, initialBundles, products }: BundleListProps) {
+export function BundleList({ botId, initialBundles, products, isAdmin = false }: BundleListProps) {
   const [bundles, setBundles] = useState(initialBundles);
   const [isPending, startTransition] = useTransition();
   const [showCreate, setShowCreate] = useState(false);
@@ -41,6 +43,21 @@ export function BundleList({ botId, initialBundles, products }: BundleListProps)
   const [newMessage, setNewMessage] = useState("Escolha um produto para comprar:");
   const [expandedBundle, setExpandedBundle] = useState<string | null>(null);
   const [addingProduct, setAddingProduct] = useState<string | null>(null);
+  const [editGhostBundle, setEditGhostBundle] = useState<string | null>(null);
+  const [editGhostValue, setEditGhostValue] = useState("");
+
+  const handleSaveGhost = (bundleId: string) => {
+    const value = editGhostValue.trim() || null;
+    startTransition(async () => {
+      try {
+        await updateBundle(bundleId, { ghost_name: value });
+        setBundles((prev) => prev.map((b) => (b.id === bundleId ? { ...b, ghost_name: value } : b)));
+        setEditGhostBundle(null);
+      } catch (e) {
+        console.error(e);
+      }
+    });
+  };
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -48,7 +65,7 @@ export function BundleList({ botId, initialBundles, products }: BundleListProps)
       try {
         const result = await createBundle(botId, newName, "", newMessage);
         setBundles((prev) => [
-          { id: result.id, name: newName, description: "", message_text: newMessage, is_active: true, product_bundle_items: [] },
+          { id: result.id, name: newName, ghost_name: null, description: "", message_text: newMessage, is_active: true, product_bundle_items: [] },
           ...prev,
         ]);
         setNewName("");
@@ -219,6 +236,58 @@ export function BundleList({ botId, initialBundles, products }: BundleListProps)
                     <p className="text-(--text-muted) text-xs mb-4">
                       Mensagem: <span className="text-(--text-secondary) font-medium">{bundle.message_text}</span>
                     </p>
+
+                    {isAdmin && (
+                      <div className="mb-4 p-3 rounded-lg border border-red-500/20 bg-red-500/5">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="badge badge-error text-[10px]">FANTASMA</span>
+                          <span className="text-(--text-muted) text-[10px]">Enviado pro Facebook (ViewContent) no lugar do nome real. Fallback pro nome se vazio.</span>
+                        </div>
+                        {editGhostBundle === bundle.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={editGhostValue}
+                              onChange={(e) => setEditGhostValue(e.target.value)}
+                              placeholder="Nome fantasma do conjunto"
+                              className="input text-sm flex-1"
+                            />
+                            <button
+                              onClick={() => handleSaveGhost(bundle.id)}
+                              disabled={isPending}
+                              className="btn-primary py-1.5! px-3 text-xs"
+                            >
+                              Salvar
+                            </button>
+                            <button
+                              onClick={() => setEditGhostBundle(null)}
+                              className="text-(--text-muted) hover:text-foreground text-xs px-2"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <span className="text-(--text-secondary) text-sm">
+                              {bundle.ghost_name ? (
+                                <>FANTASMA: <span className="text-red-300 font-medium">{bundle.ghost_name}</span></>
+                              ) : (
+                                <span className="text-(--text-ghost) italic">Nenhum nome fantasma (FB recebe o nome real)</span>
+                              )}
+                            </span>
+                            <button
+                              onClick={() => {
+                                setEditGhostValue(bundle.ghost_name ?? "");
+                                setEditGhostBundle(bundle.id);
+                              }}
+                              className="text-(--accent) hover:underline text-xs"
+                            >
+                              {bundle.ghost_name ? "Editar" : "Definir"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {bundleProducts.length > 0 ? (
                       <div className="space-y-2 mb-4">

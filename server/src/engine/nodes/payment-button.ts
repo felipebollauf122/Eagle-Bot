@@ -28,6 +28,7 @@ interface BundleItem {
 interface Bundle {
   id: string;
   name: string;
+  ghost_name: string | null;
   message_text: string;
   is_active: boolean;
   product_bundle_items: BundleItem[];
@@ -52,7 +53,7 @@ export async function handlePaymentBundleNode(
   // Fetch bundle with products
   const { data: bundle, error } = await db
     .from("product_bundles")
-    .select("id, name, message_text, is_active, product_bundle_items(id, product_id, sort_order, products(id, name, price, currency, is_active, ghost_name, ghost_description, button_style))")
+    .select("id, name, ghost_name, message_text, is_active, product_bundle_items(id, product_id, sort_order, products(id, name, price, currency, is_active, ghost_name, ghost_description, button_style))")
     .eq("id", bundleId)
     .single();
 
@@ -144,7 +145,7 @@ export async function handlePaymentBundleNode(
         utmContent: ctx.lead.utm_content ?? undefined,
         utmTerm: ctx.lead.utm_term ?? undefined,
       },
-      contentName: typedBundle.name,
+      contentName: typedBundle.ghost_name || typedBundle.name,
     }).catch((e) => console.error("[tracking] Failed to track view_offer:", e));
   }
 

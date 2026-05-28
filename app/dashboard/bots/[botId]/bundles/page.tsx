@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { BundleList } from "@/components/dashboard/bundle-list";
+import { isAdmin } from "@/lib/actions/admin-actions";
 
 export default async function BundlesPage({
   params,
@@ -8,6 +9,7 @@ export default async function BundlesPage({
 }) {
   const { botId } = await params;
   const supabase = await createClient();
+  const admin = await isAdmin();
 
   const { data: bundles } = await supabase
     .from("product_bundles")
@@ -28,6 +30,7 @@ export default async function BundlesPage({
         botId={botId}
         initialBundles={(bundles ?? []) as any}
         products={(products ?? []) as any}
+        isAdmin={admin}
       />
     </div>
   );
