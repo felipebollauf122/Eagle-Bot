@@ -369,6 +369,65 @@ export function startWorkers(): void {
   // Roda 30s depois do start pra dar tempo do worker subir
   setTimeout(() => tickMtprotoAutoSync(), 30_000);
 
+  // MTProto: health check — a cada 10min verifica se cada conta ainda tá
+  // logada no Telegram (sessão válida). Se o user deslogou pelo app oficial,
+  // a sessão dele aqui fica zumbi até a próxima campanha estourar
+  // AUTH_KEY_UNREGISTERED. Esse poller mata logo pra não acumular sujeira.
+  // Deleta contas com sessão inválida (cascade limpa dialogs/targets/inbox).
+  let mtprotoHealthRunning = false;
+  async function tickMtprotoHealth(): Promise<void> {
+    if (mtprotoHealthRunning) return;
+    mtprotoHealthRunning = true;
+    try {
+      if (!config.telegramApiId || !config.telegramApiHash) return;
+      // Pula contas pending/code_sent/needs_password (login em curso) —
+      // session_string ainda não existe ou ainda não está estável.
+      const { data: accounts } = await supabase
+        .from("mtproto_accounts")
+        .select("id, phone_number, status, session_string")
+        .not("session_string", "is", null)
+        .in("status", ["active", "flood_wait", "banned", "disconnected"])
+        .limit(500);
+      if (!accounts || accounts.length === 0) return;
+      const { MtprotoClient } = await import("./services/mtproto/client.js");
+      for (const acc of accounts) {
+        if (!acc.session_string) continue;
+        const client = new MtprotoClient(
+          config.telegramApiId,
+          config.telegramApiHash,
+          acc.session_string,
+        );
+        try {
+          await client.healthCheck();
+          // OK — se estava 'disconnected' por erro transiente, marca active
+          if (acc.status === "disconnected") {
+            await supabase
+              .from("mtproto_accounts")
+              .update({ status: "active", last_error: null })
+              .eq("id", acc.id);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const fatal = /AUTH_KEY|USER_DEACTIVATED|SESSION_REVOKED|PHONE_NUMBER_BANNED/i.test(msg);
+          if (fatal) {
+            console.warn(`[mtproto-health] conta ${acc.id} (${acc.phone_number}) inválida: ${msg} — deletando`);
+            await supabase.from("mtproto_accounts").delete().eq("id", acc.id);
+          } else {
+            console.warn(`[mtproto-health] conta ${acc.id} erro não-fatal (mantém): ${msg}`);
+          }
+        } finally {
+          await client.disconnect().catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error("[mtproto-health] Error:", err);
+    } finally {
+      mtprotoHealthRunning = false;
+    }
+  }
+  setInterval(() => tickMtprotoHealth(), 10 * 60 * 1000); // 10 min
+  setTimeout(() => tickMtprotoHealth(), 45_000); // primeira rodada 45s após boot
+
   // MTProto: dispara campanhas recorrentes que chegaram na hora.
   // Roda a cada 30s; pega mtproto_campaigns com status='scheduled' e
   // next_run_at <= now e enfileira campaign.run.

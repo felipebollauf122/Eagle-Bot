@@ -64,6 +64,17 @@ export class MtprotoClient {
     }
   }
 
+  /**
+   * Health check barato: confirma se a sessão ainda é válida no Telegram.
+   * Faz UpdateStatus (offline) — request mínima que toca em auth e não
+   * altera estado visível pro user. Se sessão foi revogada/banida, joga
+   * AUTH_KEY_UNREGISTERED / USER_DEACTIVATED / SESSION_REVOKED.
+   */
+  async healthCheck(): Promise<void> {
+    await this.connect();
+    await this.client.invoke(new Api.account.UpdateStatus({ offline: true }));
+  }
+
   async disconnect(): Promise<void> {
     await this.client.disconnect();
   }
