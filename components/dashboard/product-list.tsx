@@ -171,8 +171,9 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
                 <div className="space-y-3 animate-in">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="input-label">Nome</label>
+                      <label className="input-label">Nome real (oculto na lista)</label>
                       <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="input" />
+                      <p className="text-(--text-muted) text-[10px] mt-1">Visto pelo cliente no chat do bot.</p>
                     </div>
                     <div>
                       <label className="input-label">Preco (R$)</label>
@@ -180,7 +181,7 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
                     </div>
                   </div>
                   <div>
-                    <label className="input-label">Descricao</label>
+                    <label className="input-label">Descricao real</label>
                     <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={2} className="input resize-none" />
                   </div>
                   <div>
@@ -258,18 +259,17 @@ export function ProductList({ botId, initialProducts, blackEnabled, isAdmin }: P
                     </div>
                     <div>
                       <div className="flex items-center gap-2.5">
-                        <h3 className="text-foreground font-semibold text-sm tracking-tight">{product.name}</h3>
+                        <h3 className="text-foreground font-semibold text-sm tracking-tight">
+                          {product.ghost_name || product.name}
+                        </h3>
                         <span className={`badge ${product.is_active ? "badge-active" : "badge-inactive"}`}>
                           <div className={`w-1.5 h-1.5 rounded-full ${product.is_active ? "bg-(--accent)" : "bg-(--text-ghost)"}`} />
                           {product.is_active ? "Ativo" : "Inativo"}
                         </span>
-                        {isAdmin && product.ghost_name && (
-                          <span className="badge badge-error text-[9px]">
-                            FANTASMA: {product.ghost_name}
-                          </span>
-                        )}
                       </div>
-                      <p className="text-(--text-muted) text-xs mt-1">{product.description}</p>
+                      <p className="text-(--text-muted) text-xs mt-1">
+                        {product.ghost_description || product.description}
+                      </p>
                       <p className="text-(--text-ghost) text-[10px] mt-1.5 font-mono stat-value">{product.id}</p>
                     </div>
                   </div>
