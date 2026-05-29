@@ -41,21 +41,55 @@ interface Transaction {
 const leadService = new LeadService(supabase);
 
 /**
- * Extract transactionId and status from SigiloPay callback body.
- * Tries multiple field names since their payload format may vary.
+ * Extract transactionId and status from Poseidon Pay callback body.
+ * Tenta vários campos comuns porque a Poseidon não documenta um payload
+ * canônico — varia entre webhooks.
+ *
+ * Formatos conhecidos:
+ *  { transactionId, status }
+ *  { id, status }
+ *  { event: "payment.approved", data: { transactionId, status } }
+ *  { transaction: { id, status } }
+ *  { order: { id, status } }
+ *  { data: { transaction: { id, status } } }
  */
 function extractPaymentFields(body: Record<string, unknown>): { transactionId?: string; status?: string } {
   const data = (body.data ?? {}) as Record<string, unknown>;
-  const order = (body.order ?? {}) as Record<string, unknown>;
-  const transaction = (body.transaction ?? {}) as Record<string, unknown>;
+  const order = (body.order ?? data.order ?? {}) as Record<string, unknown>;
+  const transaction = (body.transaction ?? data.transaction ?? {}) as Record<string, unknown>;
 
   const transactionId = String(
-    body.transactionId ?? body.transaction_id ?? body.id ??
-    order.id ?? data.transactionId ?? data.id ?? transaction.id ?? ""
+    body.transactionId ??
+      body.transaction_id ??
+      body.id ??
+      data.transactionId ??
+      data.transaction_id ??
+      data.id ??
+      transaction.id ??
+      transaction.transactionId ??
+      order.id ??
+      order.transactionId ??
+      "",
   ) || undefined;
 
+  // Se vier no formato { event: "payment.approved" }, extrai o status do evento
+  const event = String(body.event ?? body.eventName ?? data.event ?? "").toLowerCase();
+  let statusFromEvent: string | undefined;
+  if (event.includes("paid") || event.includes("approved") || event.includes("completed")) {
+    statusFromEvent = "PAID";
+  } else if (event.includes("refund")) {
+    statusFromEvent = "REFUNDED";
+  } else if (event.includes("fail") || event.includes("reject") || event.includes("expir")) {
+    statusFromEvent = "FAILED";
+  }
+
   const status = String(
-    body.status ?? data.status ?? order.status ?? transaction.status ?? ""
+    body.status ??
+      data.status ??
+      transaction.status ??
+      order.status ??
+      statusFromEvent ??
+      "",
   ) || undefined;
 
   return { transactionId, status };

@@ -87,4 +87,61 @@ export class SigiloPay implements PaymentGateway {
       orderId: data.order.id,
     };
   }
+
+  /**
+   * Consulta status atual de uma transação. Usado pelo poller pra
+   * verificar pagamentos quando o webhook automático não chega.
+   *
+   * Como a Poseidon não documenta um endpoint canônico, tenta os mais
+   * prováveis em ordem: /gateway/pix/{id}, /gateway/transactions/{id},
+   * /gateway/order/{id}. Retorna null se nenhum bater (404) ou se houver
+   * erro de auth/rede.
+   */
+  async getPaymentStatus(externalId: string): Promise<{ status: string } | null> {
+    if (!this.isConfigured()) return null;
+    const candidates = [
+      `${this.baseUrl}/gateway/pix/${encodeURIComponent(externalId)}`,
+      `${this.baseUrl}/gateway/transactions/${encodeURIComponent(externalId)}`,
+      `${this.baseUrl}/gateway/order/${encodeURIComponent(externalId)}`,
+    ];
+    for (const url of candidates) {
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "User-Agent": "Mozilla/5.0 (eaglebot-server/1.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "x-public-key": this.publicKey,
+            "x-secret-key": this.secretKey,
+          },
+        });
+        if (response.status === 404) continue; // tenta próximo candidato
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          console.warn(
+            `[poseidonpay] getPaymentStatus(${externalId}) ${url} → ${response.status}: ${body.slice(0, 200)}`,
+          );
+          continue;
+        }
+        const data = (await response.json()) as Record<string, unknown>;
+        // Extrai status do payload — tenta vários campos comuns
+        const status = String(
+          data.status ??
+            (data.transaction as Record<string, unknown> | undefined)?.status ??
+            (data.order as Record<string, unknown> | undefined)?.status ??
+            (data.data as Record<string, unknown> | undefined)?.status ??
+            "",
+        );
+        if (!status) {
+          console.warn(`[poseidonpay] getPaymentStatus(${externalId}) ${url} sem campo status:`, JSON.stringify(data).slice(0, 200));
+          continue;
+        }
+        return { status };
+      } catch (err) {
+        console.warn(`[poseidonpay] getPaymentStatus(${externalId}) ${url} erro:`, err);
+        continue;
+      }
+    }
+    return null;
+  }
 }

@@ -12,6 +12,7 @@ import { botCache, flowByIdCache } from "./cache.js";
 import type { Flow } from "./engine/flow-processor.js";
 import { processRemarketing } from "./workers/remarketing-worker.js";
 import { pollEvpayPendingTransactions } from "./workers/evpay-poller.js";
+import { pollPoseidonPendingTransactions } from "./workers/poseidonpay-poller.js";
 
 interface Bot {
   id: string;
@@ -490,5 +491,13 @@ export function startWorkers(): void {
     );
   }, 5_000);
 
-  console.log("BullMQ workers + black deletion + remarketing + evpay-poller started");
+  // Poseidon Pay status poller — mesma lógica do evpay, fallback pro
+  // caso do webhook automático da Poseidon não chegar.
+  setInterval(() => {
+    pollPoseidonPendingTransactions(supabase).catch((err) =>
+      console.error("[poseidon-poller] Error:", err)
+    );
+  }, 5_000);
+
+  console.log("BullMQ workers + black deletion + remarketing + evpay-poller + poseidon-poller started");
 }
