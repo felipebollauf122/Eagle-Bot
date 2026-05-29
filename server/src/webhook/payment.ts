@@ -130,20 +130,36 @@ export async function processPaymentCallback(botId: string | null, body: Record<
 
   console.log(`[payment-webhook] Mapped status: ${status} → ${newStatus}`);
 
-  // Idempotency: skip if already processed
+  // Idempotency early-check
   if (transaction.status === newStatus) {
     console.log(`[payment-webhook] Transaction ${transactionId} already ${newStatus}, skipping`);
     return;
   }
 
-  // Update transaction status
-  await supabase
+  // Lock atômico via CAS: o UPDATE só dispara se o status no DB AINDA
+  // estiver no valor que lemos. Garante que webhook duplicado + poller
+  // concorrente não cheguem juntos no completePurchase.
+  const prevStatus = transaction.status;
+  const { data: updated, error: updErr } = await supabase
     .from("transactions")
     .update({
       status: newStatus,
       paid_at: newStatus === "approved" ? new Date().toISOString() : null,
     })
-    .eq("id", transaction.id);
+    .eq("id", transaction.id)
+    .eq("status", prevStatus)
+    .select("id");
+
+  if (updErr) {
+    console.error(`[payment-webhook] update tx ${transaction.id} failed:`, updErr);
+    return;
+  }
+  if (!updated || updated.length === 0) {
+    console.log(
+      `[payment-webhook] Transaction ${transaction.id} já foi processada por outro evento (CAS lost) — skip`,
+    );
+    return;
+  }
 
   console.log(`[payment-webhook] Transaction ${transaction.id} updated to ${newStatus}`);
 
