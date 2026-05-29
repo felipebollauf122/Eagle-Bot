@@ -115,7 +115,10 @@ export class SigiloPay implements PaymentGateway {
             "x-secret-key": this.secretKey,
           },
         });
-        if (response.status === 404) continue; // tenta próximo candidato
+        // 404 = endpoint não existe nesse caminho, tenta próximo.
+        // 403 = Cloudflare/WAF (endpoint não foi liberado pra consulta),
+        //       não vale a pena logar pra cada chamada — segue.
+        if (response.status === 404 || response.status === 403) continue;
         if (!response.ok) {
           const body = await response.text().catch(() => "");
           console.warn(

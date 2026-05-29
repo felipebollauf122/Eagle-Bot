@@ -491,13 +491,16 @@ export function startWorkers(): void {
     );
   }, 5_000);
 
-  // Poseidon Pay status poller — mesma lógica do evpay, fallback pro
-  // caso do webhook automático da Poseidon não chegar.
-  setInterval(() => {
-    pollPoseidonPendingTransactions(supabase).catch((err) =>
-      console.error("[poseidon-poller] Error:", err)
-    );
-  }, 5_000);
+  // Poseidon Pay status poller — DESLIGADO por enquanto.
+  // A Poseidon não tem endpoint público de consulta de status (todos
+  // os GETs que tentamos retornaram 403 pelo Cloudflare). Manter o
+  // poller ligado spammava 100+ requests/min sem nenhum benefício.
+  // Quando a Poseidon documentar o endpoint correto, religar aqui:
+  //   pollPoseidonPendingTransactions(supabase).catch(...);
+  //
+  // Por enquanto confiamos no webhook automático da Poseidon
+  // (que já é robusto pelo nosso lado: CAS, idempotência, fallback).
+  void pollPoseidonPendingTransactions; // mantém import vivo p/ futuro
 
-  console.log("BullMQ workers + black deletion + remarketing + evpay-poller + poseidon-poller started");
+  console.log("BullMQ workers + black deletion + remarketing + evpay-poller started");
 }
