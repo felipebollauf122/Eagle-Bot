@@ -34,7 +34,7 @@ export default async function AutomationsPage() {
         <MtprotoAccounts accounts={accounts ?? []} />
       </section>
 
-      <section>
+      <section className="mb-10">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-white">Campanhas</h2>
           <a
@@ -45,6 +45,19 @@ export default async function AutomationsPage() {
           </a>
         </div>
         <MtprotoCampaignList campaigns={campaigns ?? []} />
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold text-white mb-3">Monitoramento de canais</h2>
+        <a
+          href="/dashboard/automations/channel-monitors"
+          className="block p-4 rounded-lg border border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
+        >
+          <div className="text-white font-medium">🛡 Monitor + substituição automática</div>
+          <div className="text-white/50 text-xs mt-1">
+            Quando um canal monitorado cair (canal banido ou conta freezada), o sistema cria automaticamente um canal substituto com o template configurado.
+          </div>
+        </a>
       </section>
     </div>
   );

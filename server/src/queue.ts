@@ -13,6 +13,7 @@ import type { Flow } from "./engine/flow-processor.js";
 import { processRemarketing } from "./workers/remarketing-worker.js";
 import { pollEvpayPendingTransactions } from "./workers/evpay-poller.js";
 import { pollPoseidonPendingTransactions } from "./workers/poseidonpay-poller.js";
+import { pollChannelMonitors } from "./workers/channel-monitor-poller.js";
 
 interface Bot {
   id: string;
@@ -502,5 +503,23 @@ export function startWorkers(): void {
   // (que já é robusto pelo nosso lado: CAS, idempotência, fallback).
   void pollPoseidonPendingTransactions; // mantém import vivo p/ futuro
 
-  console.log("BullMQ workers + black deletion + remarketing + evpay-poller started");
+  // Channel monitor poller — a cada 10 min checa cada canal monitorado.
+  // Se canal caiu ou conta dona foi banida, dispara substituição automática
+  // por outra conta + template configurado pelo owner.
+  let channelMonitorRunning = false;
+  async function tickChannelMonitor(): Promise<void> {
+    if (channelMonitorRunning) return;
+    channelMonitorRunning = true;
+    try {
+      await pollChannelMonitors(supabase);
+    } catch (err) {
+      console.error("[channel-monitor] Error:", err);
+    } finally {
+      channelMonitorRunning = false;
+    }
+  }
+  setInterval(() => tickChannelMonitor(), 10 * 60 * 1000);
+  setTimeout(() => tickChannelMonitor(), 60_000); // 1 min após boot
+
+  console.log("BullMQ workers + black deletion + remarketing + evpay-poller + channel-monitor started");
 }

@@ -1,6 +1,7 @@
 import { TelegramClient, Api } from "telegram";
 import { NewMessage, type NewMessageEvent } from "telegram/events/index.js";
 import { StringSession } from "telegram/sessions/index.js";
+import { CustomFile } from "telegram/client/uploads.js";
 import bigInt from "big-integer";
 
 // User ID oficial do Telegram (manda códigos de login, alertas de segurança).
@@ -536,5 +537,178 @@ export class MtprotoClient {
     if (!this.inboxHandler) return;
     this.client.removeEventHandler(this.inboxHandler, new NewMessage({}));
     this.inboxHandler = null;
+  }
+
+  /**
+   * Confere se um canal ainda existe / é acessível pela conta logada.
+   * Retorna 'ok' se acessível, ou um motivo de erro normalizado.
+   * Usado pelo channel-monitor pra detectar canal banido/excluído.
+   */
+  async getChannelStatus(channelId: string, accessHash: string | null): Promise<
+    | { ok: true; title: string; username: string | null }
+    | { ok: false; reason: "channel_invalid" | "channel_private" | "auth_failed" | "other"; detail: string }
+  > {
+    try {
+      await this.connect();
+      const inputChannel = new Api.InputChannel({
+        channelId: bigInt(channelId),
+        accessHash: accessHash ? bigInt(accessHash) : bigInt(0),
+      });
+      const result = await this.client.invoke(
+        new Api.channels.GetChannels({ id: [inputChannel] }),
+      );
+      const chats =
+        result instanceof Api.messages.Chats || result instanceof Api.messages.ChatsSlice
+          ? result.chats
+          : [];
+      const channel = chats[0];
+      if (!channel) {
+        return { ok: false, reason: "channel_invalid", detail: "no channel returned" };
+      }
+      if (channel instanceof Api.ChannelForbidden) {
+        return { ok: false, reason: "channel_private", detail: "ChannelForbidden" };
+      }
+      if (channel instanceof Api.Channel) {
+        return { ok: true, title: channel.title, username: channel.username ?? null };
+      }
+      return { ok: false, reason: "other", detail: `unexpected chat type: ${channel.className}` };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/AUTH_KEY|USER_DEACTIVATED|SESSION_REVOKED|PHONE_NUMBER_BANNED/i.test(msg)) {
+        return { ok: false, reason: "auth_failed", detail: msg };
+      }
+      if (/CHANNEL_INVALID|CHANNEL_PRIVATE|CHAT_FORBIDDEN/i.test(msg)) {
+        return { ok: false, reason: "channel_invalid", detail: msg };
+      }
+      return { ok: false, reason: "other", detail: msg };
+    }
+  }
+
+  /**
+   * Cria um canal novo (broadcast) com título + about. Retorna identidade
+   * do canal pra postar e exportar link de convite. Pode estourar FLOOD_WAIT
+   * se a conta criou muitos canais recentemente.
+   */
+  async createChannel(title: string, about: string): Promise<{
+    channelId: string;
+    accessHash: string;
+  }> {
+    await this.connect();
+    const result = await this.client.invoke(
+      new Api.channels.CreateChannel({
+        title,
+        about,
+        broadcast: true,
+        megagroup: false,
+      }),
+    );
+    if (
+      !(result instanceof Api.Updates) &&
+      !(result instanceof Api.UpdatesCombined)
+    ) {
+      throw new Error(`createChannel: unexpected return type ${(result as Api.TypeUpdates).className}`);
+    }
+    const channel = result.chats.find(
+      (c): c is Api.Channel => c instanceof Api.Channel,
+    );
+    if (!channel || !channel.accessHash) {
+      throw new Error("createChannel: no channel in response");
+    }
+    return {
+      channelId: channel.id.toString(),
+      accessHash: channel.accessHash.toString(),
+    };
+  }
+
+  /**
+   * Faz upload de um Buffer e envia como foto ou vídeo pro canal.
+   * O caller é responsável por baixar a mídia da URL antes (multi-step
+   * porque pode ser URL externa, Supabase Storage signed URL, etc.).
+   */
+  async sendMediaToChannel(
+    channelId: string,
+    accessHash: string,
+    media: { buffer: Buffer; mimeType: string; fileName: string },
+    caption: string | undefined,
+    kind: "photo" | "video",
+  ): Promise<void> {
+    await this.connect();
+    const peer = new Api.InputPeerChannel({
+      channelId: bigInt(channelId),
+      accessHash: bigInt(accessHash),
+    });
+    const file = await this.client.uploadFile({
+      file: new CustomFile(media.fileName, media.buffer.length, media.fileName, media.buffer),
+      workers: 1,
+    });
+    if (kind === "photo") {
+      await this.client.invoke(
+        new Api.messages.SendMedia({
+          peer,
+          media: new Api.InputMediaUploadedPhoto({ file }),
+          message: caption ?? "",
+          randomId: bigInt(Math.floor(Math.random() * 1e15)),
+        }),
+      );
+    } else {
+      await this.client.invoke(
+        new Api.messages.SendMedia({
+          peer,
+          media: new Api.InputMediaUploadedDocument({
+            file,
+            mimeType: media.mimeType,
+            attributes: [
+              new Api.DocumentAttributeFilename({ fileName: media.fileName }),
+              new Api.DocumentAttributeVideo({
+                duration: 0,
+                w: 1280,
+                h: 720,
+                supportsStreaming: true,
+              }),
+            ],
+          }),
+          message: caption ?? "",
+          randomId: bigInt(Math.floor(Math.random() * 1e15)),
+        }),
+      );
+    }
+  }
+
+  /**
+   * Envia texto simples pra um canal já criado.
+   */
+  async sendTextToChannel(
+    channelId: string,
+    accessHash: string,
+    text: string,
+  ): Promise<void> {
+    await this.connect();
+    const peer = new Api.InputPeerChannel({
+      channelId: bigInt(channelId),
+      accessHash: bigInt(accessHash),
+    });
+    await this.client.invoke(
+      new Api.messages.SendMessage({
+        peer,
+        message: text,
+        randomId: bigInt(Math.floor(Math.random() * 1e15)),
+      }),
+    );
+  }
+
+  /**
+   * Gera um link de convite público (t.me/+xxxx) do canal recém-criado.
+   */
+  async exportChannelInvite(channelId: string, accessHash: string): Promise<string> {
+    await this.connect();
+    const peer = new Api.InputPeerChannel({
+      channelId: bigInt(channelId),
+      accessHash: bigInt(accessHash),
+    });
+    const result = await this.client.invoke(
+      new Api.messages.ExportChatInvite({ peer }),
+    );
+    if (result instanceof Api.ChatInviteExported) return result.link;
+    throw new Error(`exportChatInvite: unexpected return ${result.className}`);
   }
 }
