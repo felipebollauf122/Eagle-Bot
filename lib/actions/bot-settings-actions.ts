@@ -166,3 +166,63 @@ export async function deleteBot(botId: string): Promise<{ success: true }> {
   }
   return { success: true };
 }
+
+/**
+ * Substitui o token do Telegram do bot (ex: bot anterior foi banido, criou
+ * outro no @BotFather e quer usar o token novo mantendo TODOS os leads,
+ * transactions, flows, blacklist, etc.).
+ *
+ * Fluxo:
+ * 1. Valida o token novo via getMe no Telegram
+ * 2. Atualiza telegram_token + bot_username no DB
+ * 3. Invalida o cache do server
+ * 4. Re-registra o webhook (mesma URL, token novo)
+ *
+ * Leads e tudo mais ficam intactos — FK é por bot.id, não por token.
+ *
+ * Pra remarketing funcionar logo após a troca, os leads do bot antigo
+ * precisam dar /start no bot NOVO pelo menos uma vez (Telegram bloqueia
+ * envios pra users que nunca interagiram com o token novo).
+ */
+export async function updateBotToken(botId: string, newToken: string): Promise<{ success: true; bot_username: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const admin = await isAdmin();
+  let botQuery = supabase.from("bots").select("id").eq("id", botId);
+  if (!admin) botQuery = botQuery.eq("tenant_id", user.id);
+  const { data: bot } = await botQuery.single();
+  if (!bot) throw new Error("Bot not found");
+
+  const cleanToken = newToken.trim();
+  if (!cleanToken.includes(":")) {
+    throw new Error("Token inválido. Formato esperado: 123456:ABC-DEF...");
+  }
+
+  // Valida o token no Telegram
+  const me = await fetch(`https://api.telegram.org/bot${cleanToken}/getMe`);
+  const meData = await me.json();
+  if (!meData.ok || !meData.result?.username) {
+    throw new Error(meData.description || "Token rejeitado pelo Telegram.");
+  }
+  const newUsername = meData.result.username as string;
+
+  // Atualiza DB
+  const { error } = await supabase
+    .from("bots")
+    .update({ telegram_token: cleanToken, bot_username: newUsername })
+    .eq("id", botId);
+  if (error) throw new Error(`Failed to update token: ${error.message}`);
+
+  invalidateBotCache(botId);
+
+  // Re-registra webhook com o novo token (mesma URL final do bot)
+  const serverUrl = (process.env.NEXT_PUBLIC_BOT_SERVER_URL ?? "http://localhost:3001").replace(/\/+$/, "");
+  await fetch(`${serverUrl}/api/bots/${botId}/register-webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  }).catch((e) => console.error("register-webhook after token update failed:", e));
+
+  return { success: true, bot_username: newUsername };
+}

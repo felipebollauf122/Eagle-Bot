@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { saveBotSettings, updateBotAvatar, toggleBlackEnabled, toggleProtectContent, deleteBot } from "@/lib/actions/bot-settings-actions";
+import { saveBotSettings, updateBotAvatar, toggleBlackEnabled, toggleProtectContent, deleteBot, updateBotToken } from "@/lib/actions/bot-settings-actions";
 import { uploadMedia } from "@/lib/actions/upload-actions";
 import type { Bot } from "@/lib/types/database";
 
@@ -36,6 +36,10 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
   const [togglingProtect, setTogglingProtect] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(bot.avatar_url ?? "");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [botUsername, setBotUsername] = useState(bot.bot_username ?? "");
+  const [newToken, setNewToken] = useState("");
+  const [tokenSaving, setTokenSaving] = useState(false);
+  const [tokenMessage, setTokenMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const [pixelId, setPixelId] = useState(bot.facebook_pixel_id ?? "");
@@ -536,6 +540,80 @@ export function BotSettingsForm({ bot, isAdmin = false }: BotSettingsFormProps) 
           </span>
         )}
       </div>
+
+      {/* Substituir token do Telegram (admin/owner) */}
+      {isAdmin && (
+        <div className="mt-12 card p-6 border border-amber-500/30 bg-amber-500/5">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 4v6h-6M1 20v-6h6" />
+                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-amber-300 font-semibold text-sm">Substituir token do Telegram</h2>
+              <p className="text-(--text-muted) text-xs">
+                Trocou de bot no BotFather (banido, novo dono, etc)? Cole o token novo aqui. Os leads, vendas e flows ficam intactos.
+              </p>
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <label className="input-label">Bot atual</label>
+            <div className="text-(--text-secondary) text-sm">
+              {botUsername ? <code className="text-amber-300">@{botUsername}</code> : <span className="text-(--text-ghost)">sem username</span>}
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <label className="input-label">Token novo (BotFather)</label>
+            <input
+              type="text"
+              value={newToken}
+              onChange={(e) => {
+                setNewToken(e.target.value);
+                if (tokenMessage) setTokenMessage(null);
+              }}
+              placeholder="123456789:ABCdefGhIjKlmNoPqRsTuVwXyZ"
+              className="input font-mono text-sm"
+            />
+          </div>
+
+          {tokenMessage && (
+            <p className={`text-xs mb-3 ${tokenMessage.kind === "ok" ? "text-(--accent)" : "text-red-400"}`}>
+              {tokenMessage.text}
+            </p>
+          )}
+
+          <p className="text-(--text-ghost) text-[10px] mb-3 leading-relaxed">
+            ⚠️ <b>Importante</b>: o Telegram só permite envio (incl. remarketing) pra users que JÁ deram /start no novo bot.
+            Leads antigos vão precisar dar /start no bot novo pelo menos uma vez pra voltar a receber mensagens automáticas.
+          </p>
+
+          <button
+            disabled={!newToken.trim() || tokenSaving}
+            onClick={async () => {
+              if (!confirm(`Substituir o token do bot @${botUsername}? O bot vai parar de funcionar até o webhook ser re-registrado (acontece automático em segundos).`)) return;
+              setTokenSaving(true);
+              setTokenMessage(null);
+              try {
+                const r = await updateBotToken(bot.id, newToken);
+                setTokenMessage({ kind: "ok", text: `Token trocado. Bot agora é @${r.bot_username}. Webhook re-registrado.` });
+                setBotUsername(r.bot_username);
+                setNewToken("");
+              } catch (err) {
+                setTokenMessage({ kind: "err", text: err instanceof Error ? err.message : "erro" });
+              } finally {
+                setTokenSaving(false);
+              }
+            }}
+            className="px-4 py-2 rounded-md bg-amber-500/15 border border-amber-500/40 text-amber-300 text-sm font-medium hover:bg-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {tokenSaving ? "Trocando..." : "Substituir token"}
+          </button>
+        </div>
+      )}
 
       {/* Danger zone — excluir bot */}
       <div className="mt-12 card p-6 border border-red-500/30 bg-red-500/5">
